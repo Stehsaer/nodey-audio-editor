@@ -2,7 +2,7 @@ add_rules("mode.debug", "mode.release")
 
 add_requires("imgui", {alias="imgui", configs={sdl2=true, sdl2_renderer=true, wchar32=true}})
 add_requires("jsoncpp")
-add_requires("libsdl2")
+add_requires("libsdl2",{configs={shared=true, sdl2_image=false, sdl2_mixer=true, sdl2_ttf=false}, system=false})
 add_requires("ffmpeg", {configs={shared=true, ffmpeg=false}})
 add_requires("boost", {configs={cmake=false, fiber=true}})
 add_requires("nativefiledialog")
