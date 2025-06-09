@@ -44,6 +44,7 @@ class App
 	std::atomic<Node_editor_context_menu_state> node_editor_context_menu_state
 		= Node_editor_context_menu_state::Closed;           // 节点编辑器右键菜单状态
 	std::optional<infra::Id_t> new_node_id = std::nullopt;  // 新创建的节点ID，用于设置新节点到鼠标的位置
+	uint32_t main_menu_bar_height = 0;                      // 主菜单栏高度
 
 	/* UI 相关对象 */
 
@@ -84,11 +85,14 @@ class App
 	// （辅助）绘制节点添加菜单
 	void draw_add_node_menu();
 
-	// 绘制左面板
-	void draw_left_panel();
+	// 绘制侧面板
+	void draw_side_panel();
 
-	// 绘制右面板（编辑器）
-	void draw_right_panel();
+	// 绘制主面板
+	void draw_main_panel();
+
+	// 绘制工具栏
+	void draw_toolbar();
 
 	// 绘制主菜单栏
 	void draw_menubar();

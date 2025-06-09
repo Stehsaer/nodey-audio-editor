@@ -86,7 +86,7 @@ void App::draw_node(infra::Id_t id, const infra::Graph::Node& node)
 		ImNodes::EndNodeTitleBar();
 
 		// 绘制节点本体
-		if (node.processor->draw_content(false)) graph.update_node_pin(id);
+		if (node.processor->draw_content(false) && state == State::Editing) graph.update_node_pin(id);
 
 		// 绘制节点输入输出端口
 		ImGui::NewLine();
@@ -140,6 +140,7 @@ void App::draw_menubar()
 {
 	if (ImGui::BeginMainMenuBar())
 	{
+		main_menu_bar_height = ImGui::GetWindowSize().y;
 		ImGui::EndMainMenuBar();
 	}
 }
@@ -157,6 +158,8 @@ void App::draw_node_editor()
 
 		for (auto& [i, item] : graph.nodes) draw_node(i, item);
 		for (auto [i, link] : graph.links) ImNodes::Link(i, link.from, link.to);
+
+		ImNodes::MiniMap(config::appearance::node_editor_minimap_fraction, ImNodesMiniMapLocation_TopRight);
 
 		if (state == State::Editing)
 		{
@@ -259,9 +262,9 @@ void App::draw_node_editor_context_menu()
 	}
 }
 
-void App::draw_left_panel()
+void App::draw_side_panel()
 {
-	const auto full_width = config::appearance::left_panel_width * runtime_config::ui_scale
+	const auto full_width = config::appearance::side_panel_width * runtime_config::ui_scale
 						  - 2 * ImGui::GetStyle().WindowPadding.x;
 
 	{
@@ -334,21 +337,41 @@ void App::draw_left_panel()
 	}
 }
 
-void App::draw_right_panel()
+void App::draw_main_panel()
 {
 	draw_node_editor();
+}
+
+void App::draw_toolbar()
+{
+	const auto area_width = config::appearance::toolbar_internal_width * runtime_config::ui_scale;
+
+	ImGui::Button(ICON_CHECK "##toolbar-placeholder-check", {area_width, area_width});
+	if (ImGui::BeginItemTooltip())
+	{
+		ImGui::Text("Placeholder 1 (check icon). Place descriptive text here.");
+		ImGui::EndTooltip();
+	}
+
+	ImGui::Button(ICON_COPY "##toolbar-placeholder-copy", {area_width, area_width});
+	if (ImGui::BeginItemTooltip())
+	{
+		ImGui::Text("Placeholder 2 (copy icon). Place descriptive text here.");
+		ImGui::EndTooltip();
+	}
 }
 
 void App::draw()
 {
 	draw_menubar();
 
-	const auto left_panel_width_pixel = config::appearance::left_panel_width * runtime_config::ui_scale;
+	const auto side_panel_width_pixel = config::appearance::side_panel_width * runtime_config::ui_scale;
+	const auto [display_size_x, display_size_y] = ImGui::GetIO().DisplaySize;
 
-	// 左侧面板
+	// 侧面板
 	{
-		ImGui::SetNextWindowPos(ImVec2(0, 0));
-		ImGui::SetNextWindowSize({left_panel_width_pixel, ImGui::GetIO().DisplaySize.y});
+		ImGui::SetNextWindowPos(ImVec2(display_size_x - side_panel_width_pixel, 0));
+		ImGui::SetNextWindowSize({side_panel_width_pixel, ImGui::GetIO().DisplaySize.y});
 		ImGui::SetNextWindowBgAlpha(1.0f);
 
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -361,16 +384,14 @@ void App::draw()
 			))
 			THROW_LOGIC_ERROR("Failed to create left window");
 		ImGui::PopStyleVar(2);
-		draw_left_panel();
+		draw_side_panel();
 		ImGui::End();
 	}
 
-	// 右侧面板
+	// 主面板
 	{
-		ImGui::SetNextWindowPos(ImVec2(left_panel_width_pixel, 0));
-		ImGui::SetNextWindowSize(
-			{ImGui::GetIO().DisplaySize.x - left_panel_width_pixel, ImGui::GetIO().DisplaySize.y}
-		);
+		ImGui::SetNextWindowPos(ImVec2(0, 0));
+		ImGui::SetNextWindowSize({display_size_x - side_panel_width_pixel, ImGui::GetIO().DisplaySize.y});
 		ImGui::SetNextWindowBgAlpha(1.0f);
 
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -383,7 +404,27 @@ void App::draw()
 			))
 			THROW_LOGIC_ERROR("Failed to create right window");
 		ImGui::PopStyleVar(2);
-		draw_right_panel();
+		draw_main_panel();
+		ImGui::End();
+	}
+
+	// 工具栏
+	{
+		const auto toolbar_margin_pixel = config::appearance::toolbar_margin * runtime_config::ui_scale;
+		const auto toolbar_internal_width_pixel
+			= config::appearance::toolbar_internal_width * runtime_config::ui_scale;
+		const auto toolbar_width_pixel = toolbar_internal_width_pixel + 2 * ImGui::GetStyle().WindowPadding.x;
+
+		ImGui::SetNextWindowPos({toolbar_margin_pixel, toolbar_margin_pixel + main_menu_bar_height});
+		ImGui::SetNextWindowSize({toolbar_width_pixel, 0});
+		if (!ImGui::Begin(
+				"##toolbar",
+				nullptr,
+				ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize
+					| ImGuiWindowFlags_NoSavedSettings
+			))
+			THROW_LOGIC_ERROR("Failed to create toolbar window");
+		draw_toolbar();
 		ImGui::End();
 	}
 
