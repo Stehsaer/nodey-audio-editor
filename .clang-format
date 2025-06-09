@@ -1,0 +1,57 @@
+BasedOnStyle: Microsoft
+IndentWidth: 4
+ColumnLimit: 110
+SpacesBeforeTrailingComments: 2
+
+# Allows
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: true
+AllowShortLoopsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Empty
+AllowShortLambdasOnASingleLine: Inline
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+
+# Line breaks
+BreakBeforeBinaryOperators: All
+BreakConstructorInitializers: AfterColon
+BreakBeforeBraces: Allman
+BracedInitializerIndentWidth: 4
+
+# Bin-packs
+BinPackArguments: false
+BinPackParameters: false
+PackConstructorInitializers: Never
+AlwaysBreakTemplateDeclarations: Yes
+ExperimentalAutoDetectBinPacking: false
+
+# Alignments
+AlignConsecutiveBitFields: true
+AlignConsecutiveAssignments: false
+AlignArrayOfStructures: Left # Currently Broken
+AlignConsecutiveDeclarations: false
+PointerAlignment: Left
+AlignOperands: AlignAfterOperator
+AlignAfterOpenBracket: BlockIndent
+
+ReflowComments: false
+
+BraceWrapping:
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+  BeforeLambdaBody: true
+
+ContinuationIndentWidth: 4
+Cpp11BracedListStyle: true
+
+EmptyLineAfterAccessModifier: Always
+EmptyLineBeforeAccessModifier: Always
+
+UseTab: ForContinuationAndIndentation
+FixNamespaceComments: false
+NamespaceIndentation: All
+
+# Penalties
+PenaltyBreakAssignment: 0
+# Standard: auto

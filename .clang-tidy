@@ -1,0 +1,51 @@
+Checks: >
+  modernize-*, 
+  bugprone-*, 
+  readability-*, 
+  performance-*, 
+  misc-*, 
+  -modernize-use-trailing-return-type,
+  -modernize-use-override,
+  -modernize-use-nodiscard,
+  -modernize-avoid-c-arrays,
+  -modernize-avoid-bind,
+  -bugprone-narrowing-conversions,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-reserved-identifier,
+  -readability-braces-around-statements,
+  -readability-else-after-return,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -readability-implicit-bool-conversion,
+  -readability-isolate-declaration,
+  -readability-suspicious-call-argument,
+  -readability-uppercase-literal-suffix,
+  -readability-convert-member-functions-to-static,
+  -readability-named-parameter,
+  -readability-qualified-auto,
+  -readability-math-missing-parentheses,
+  -performance-no-int-to-ptr,
+  -misc-non-private-member-variables-in-classes,
+  -misc-no-recursion,
+  -misc-unused-parameters,
+  -misc-use-anonymous-namespace,
+  -modernize-use-using,
+  -performance-enum-size
+
+CheckOptions:
+  readability-identifier-naming.VariableCase: lower_case
+  readability-identifier-naming.ClassCase: Leading_upper_snake_case
+  readability-identifier-naming.AbstractClassCase: Leading_upper_snake_case
+  readability-identifier-naming.FunctionCase: lower_case
+  readability-identifier-naming.MacroDefinitionCase: UPPER_CASE
+  readability-identifier-naming.StructCase: Leading_upper_snake_case
+  readability-identifier-naming.EnumCase: Leading_upper_snake_case
+  readability-identifier-naming.EnumConstantCase: Leading_upper_snake_case
+  readability-identifier-naming.FunctionIgnoredRegexp: (^_+.*)|([A-Z]+[a-z0-9_]*)
+  readability-identifier-naming.VariableIgnoredRegexp: (^_+.*)|([A-Z]+[a-z0-9_]*)
+  readability-identifier-naming.EnumConstantIgnoredRegexp: (^_+.*)|([A-Z]+[a-z0-9_]*)
+  readability-identifier-naming.EnumIgnoredRegexp: (^_+.*)|([A-Z]+[a-z0-9_]*)
+  readability-identifier-naming.ClassIgnoredRegexp: (promise_type)|([A-Z]+[a-z0-9_]*)
+  readability-identifier-naming.StructIgnoredRegexp: (promise_type)|([A-Z]+[a-z0-9_]*)
+  readability-identifier-naming.AbstractClassIgnoredRegexp: (promise_type)|([A-Z]+[a-z0-9_]*)
