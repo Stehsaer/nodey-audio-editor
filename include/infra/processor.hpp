@@ -8,6 +8,7 @@
 #include <set>
 #include <source_location>
 #include <stop_token>
+#include <optional>
 
 #include "utility/logic-error-utility.hpp"
 
