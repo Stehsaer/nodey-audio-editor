@@ -43,6 +43,7 @@ class App
 	std::atomic<State> state = State::Editing;  // 程序状态
 	std::atomic<Node_editor_context_menu_state> node_editor_context_menu_state
 		= Node_editor_context_menu_state::Closed;  // 节点编辑器右键菜单状态
+	uint32_t main_menu_bar_height = 0;             // 主菜单栏高度
 
 	/* UI 相关对象 */
 
@@ -92,10 +93,13 @@ class App
 	void load_graph_from_string(const std::string& json_string);
 
 	// 绘制左面板
-	void draw_left_panel();
+	void draw_side_panel();
 
-	// 绘制右面板（编辑器）
-	void draw_right_panel();
+	// 绘制主面板
+	void draw_main_panel();
+
+	// 绘制工具栏
+	void draw_toolbar();
 
 	// 绘制主菜单栏
 	void draw_menubar();
