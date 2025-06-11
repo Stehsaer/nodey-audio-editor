@@ -2,6 +2,7 @@
 #include "utility/logic-error-utility.hpp"
 
 #include <algorithm>
+#include <iostream>
 #include <stack>
 
 namespace infra
@@ -60,7 +61,9 @@ namespace infra
 			[&set](auto pair) -> bool
 			{ return set.contains(pair.second.from) || set.contains(pair.second.to); }
 		);
+
 		set.clear();
+		item.pin_name_map.clear();
 
 		// 重新添加含有新属性的引脚
 		const auto attributes = node->get_pin_attributes();
@@ -70,6 +73,10 @@ namespace infra
 			set.emplace(pin_id);
 			pins.erase(pin_id);
 			pins.emplace(pin_id, Pin{.parent = id, .attribute = attribute});
+
+			if (item.pin_name_map.contains(attribute.identifier))
+				THROW_LOGIC_ERROR("Pin name {} already exists for node ID {}", attribute.identifier, id);
+			item.pin_name_map.emplace(attribute.identifier, pin_id);
 		}
 	}
 
@@ -231,5 +238,204 @@ namespace infra
 		for (auto node : visited_nodes) node_in_degree.erase(node);
 		if (!node_in_degree.empty()) [[unlikely]]
 			throw Loop_detected_error{};
+	}
+
+	Json::Value Graph::serialize() const
+	{
+		Json::Value node_json(Json::ValueType::objectValue);
+
+		// 节点格式 <node>
+		// "0": {
+		//     "identifier": "node_identifier",
+		//     "info": { ... },  // 节点信息
+		//     "position": { // 节点位置
+		//         "x": 0,
+		//         "y": 0
+		//     }
+		// }
+
+		for (const auto& [id, node] : nodes)
+		{
+			const auto processor_info = node.processor->get_processor_info_non_static();
+
+			Json::Value item;
+
+			item["identifier"] = processor_info.identifier;
+			item["info"] = node.processor->serialize();
+			item["position"]["x"] = node.position.x;
+			item["position"]["y"] = node.position.y;
+
+			node_json[std::to_string(id)] = std::move(item);
+		}
+
+		Json::Value link_json(Json::ValueType::arrayValue);
+
+		// 连结格式 <link>
+		// {
+		//     "from": {
+		//         "node": 0,
+		//         "pin": "from_pin_name"
+		//     },
+		//     "to": {
+		//         "node": 1,
+		//         "pin": "to_pin_name"
+		//     }
+		// }
+
+		for (const auto& [idx, link] : links)
+		{
+			const auto [from, to] = link;
+			const auto& from_pin = pins.at(from);
+			const auto& to_pin = pins.at(to);
+
+			const auto& from_name = from_pin.attribute.identifier;
+			const auto& to_name = to_pin.attribute.identifier;
+
+			Json::Value from_json;
+			from_json["node"] = from_pin.parent;
+			from_json["pin"] = from_name;
+
+			Json::Value to_json;
+			to_json["node"] = to_pin.parent;
+			to_json["pin"] = to_name;
+
+			Json::Value item;
+			item["from"] = std::move(from_json);
+			item["to"] = std::move(to_json);
+			link_json.append(std::move(item));
+		}
+
+		// 最终输出格式
+		// {
+		//     "nodes": {
+		//         "0": { ... },  // 节点信息
+		// 	       "1": { ... },
+		//         ...
+		//     },
+		//     "links": [
+		//         {
+		//             "from": ...,
+		// 		       "to": ...
+		//         },
+		//         {
+		//             ...
+		//         }
+		//     ]
+		// }
+
+		Json::Value result;
+		result["nodes"] = std::move(node_json);
+		result["links"] = std::move(link_json);
+
+		return result;
+	}
+
+	Graph Graph::deserialize(const Json::Value& value)
+	try
+	{
+		if (!value.isObject()) throw Invalid_file_error("Invalid graph format, expected object");
+
+		const auto& nodes_json = value["nodes"];
+		const auto& links_json = value["links"];
+
+		std::cout << links_json << std::endl;
+
+		if (!nodes_json.isObject()) throw Invalid_file_error("Invalid nodes format, expected object");
+		if (!links_json.isArray()) throw Invalid_file_error("Invalid links format, expected array");
+
+		Graph graph;
+
+		for (const auto& key : nodes_json.getMemberNames())
+		{
+			// id转int
+			size_t integer_processed;
+			const Id_t id = std::stoi(key, &integer_processed);
+			if (integer_processed != key.length())
+				throw Invalid_file_error(std::format("Invalid node ID: {}", key));
+
+			const auto& node_json = nodes_json[key];
+			if (!node_json.isObject())
+				throw Invalid_file_error(std::format("Invalid node JSON format for ID: {}", id));
+
+			const std::string identifier = node_json["identifier"].asString();
+
+			// 查找对应的节点元信息
+			const auto find_metadata = Processor::processor_map.find(identifier);
+			if (find_metadata == Processor::processor_map.end())
+				throw Invalid_file_error(std::format("Unknown processor identifier: {}", identifier));
+			const auto& metadata = find_metadata->second;
+
+			std::shared_ptr<Processor> processor = metadata.generate();
+			processor->deserialize(node_json["info"]);
+
+			// 单例处理逻辑
+			if (metadata.singleton)
+			{
+				if (graph.singleton_node_map.contains(identifier))
+					throw Invalid_file_error(std::format("Duplicating singleton node \"{}\"", identifier));
+
+				graph.singleton_node_map.emplace(identifier, id);
+			}
+
+			graph.nodes.emplace(
+				id,
+				Graph::Node{
+					.processor = std::move(processor),
+					.pins = std::set<Id_t>(),
+					.pin_name_map = {},
+					.position
+					= ImVec2(node_json["position"]["x"].asFloat(), node_json["position"]["y"].asFloat())
+				}
+			);
+
+			graph.update_node_pin(id);
+		}
+
+		for (const auto& link : links_json)
+		{
+			if (!link.isObject()) throw Invalid_file_error("Invalid link JSON format, expected object");
+
+			const auto& from_json = link["from"];
+			const auto& to_json = link["to"];
+
+			if (!from_json.isObject() || !to_json.isObject())
+				throw Invalid_file_error("Invalid link 'from' or 'to' JSON format, expected object");
+
+			const Id_t from_node = from_json["node"].asInt();
+			const Id_t to_node = to_json["node"].asInt();
+
+			const std::string from_pin_name = from_json["pin"].asString();
+			const std::string to_pin_name = to_json["pin"].asString();
+
+			if (!graph.nodes.contains(from_node) || !graph.nodes.contains(to_node))
+				throw Invalid_file_error(
+					std::format("Link references non-existent node: {} -> {}", from_node, to_node)
+				);
+
+			const auto& from_pin_map = graph.nodes.at(from_node).pin_name_map;
+			const auto& to_pin_map = graph.nodes.at(to_node).pin_name_map;
+
+			if (!from_pin_map.contains(from_pin_name) || !to_pin_map.contains(to_pin_name))
+				throw Invalid_file_error(
+					std::format(
+						"Link references non-existent pin: {}.{} -> {}.{}",
+						from_node,
+						from_pin_name,
+						to_node,
+						to_pin_name
+					)
+				);
+
+			const Id_t from_id = from_pin_map.at(from_pin_name);
+			const Id_t to_id = to_pin_map.at(to_pin_name);
+
+			graph.add_link(from_id, to_id);
+		}
+
+		return graph;
+	}
+	catch (const Json::Exception& e)
+	{
+		throw Invalid_file_error(std::format("Failed to deserialize graph due to JSON error: {}", e.what()));
 	}
 }

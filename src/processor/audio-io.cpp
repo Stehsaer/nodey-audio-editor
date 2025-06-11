@@ -188,6 +188,18 @@ namespace processor
 		for (auto& channel : output_item) channel->set_eof();
 	}
 
+	Json::Value Audio_input::serialize() const
+	{
+		Json::Value value(Json::ValueType::objectValue);
+		value["file_path"] = file_path;
+		return value;
+	}
+
+	void Audio_input::deserialize(const Json::Value& value)
+	{
+		file_path = value["file_path"].asString();
+	}
+
 	void Audio_input::draw_title()
 	{
 		imgui_utility::shadowed_text("Audio Input");

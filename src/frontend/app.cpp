@@ -131,7 +131,7 @@ void App::draw_add_node_menu()
 		if (ImGui::MenuItem(info.display_name.c_str(), nullptr, singleton_and_exists, !singleton_and_exists))
 		{
 			const auto new_id = graph.add_node(item.second.generate());
-			new_node_id = new_id;
+			ImNodes::SetNodeScreenSpacePos(new_id, ImGui::GetMousePos());
 		}
 	}
 }
@@ -148,14 +148,12 @@ void App::draw_node_editor()
 {
 	ImNodes::BeginNodeEditor();
 	{
-		// 把新节点放置在鼠标处
-		if (new_node_id.has_value())
+		for (auto& [i, node] : graph.nodes)
 		{
-			ImNodes::SetNodeScreenSpacePos(new_node_id.value(), ImGui::GetMousePos());
-			new_node_id.reset();
+			draw_node(i, node);
+			node.position = ImNodes::GetNodeGridSpacePos(i);
 		}
 
-		for (auto& [i, item] : graph.nodes) draw_node(i, item);
 		for (auto [i, link] : graph.links) ImNodes::Link(i, link.from, link.to);
 
 		if (state == State::Editing)
@@ -259,6 +257,25 @@ void App::draw_node_editor_context_menu()
 	}
 }
 
+std::string App::save_graph_as_string() const
+{
+	const auto json = graph.serialize();
+	Json::StreamWriterBuilder writer;
+	writer["indentation"] = "  ";  // 设置缩进为两个空格
+	return Json::writeString(writer, json);
+}
+
+void App::load_graph_from_string(const std::string& json_string)
+{
+	Json::Value json;
+	const auto parse_result = Json::Reader().parse(json_string, json, false);
+	if (!parse_result) throw infra::Graph::Invalid_file_error("Failed to parse JSON");
+
+	graph = infra::Graph::deserialize(json);
+
+	for (const auto& [id, node] : graph.nodes) ImNodes::SetNodeGridSpacePos(id, node.position);
+}
+
 void App::draw_left_panel()
 {
 	const auto full_width = config::appearance::left_panel_width * runtime_config::ui_scale
@@ -298,6 +315,58 @@ void App::draw_left_panel()
 			ImGui::EndDisabled();
 			break;
 		}
+	}
+
+	if (ImGui::Button("Emit JSON", {full_width, ImGui::GetTextLineHeight() * 2}))
+	{
+		try
+		{
+			const std::string json_string = save_graph_as_string();
+			std::println("{}", json_string);
+		}
+		catch (const std::runtime_error& e)
+		{
+			add_error_popup_window("Failed to serialize graph", "", e.what());
+		}
+	}
+
+	if (ImGui::Button("Load JSON", {full_width, ImGui::GetTextLineHeight() * 2}))
+	{
+		popup_manager.open_window(
+			Popup_modal_manager::Window{
+				.title = "Load Graph JSON",
+				.flags
+				= ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove,
+				.has_close_button = true,
+				.keep_centered = true,
+				.render_func =
+					[this](bool close_button_pressed)
+				{
+					static std::string json_string;
+					ImGui::InputTextMultiline(
+						"##json_input",
+						&json_string,
+						ImVec2(300, ImGui::GetTextLineHeight() * 10),
+						ImGuiInputTextFlags_AllowTabInput
+					);
+
+					if (ImGui::Button("Load", {300, ImGui::GetTextLineHeight() * 2}))
+					{
+						try
+						{
+							load_graph_from_string(json_string);
+							return true;
+						}
+						catch (const infra::Graph::Invalid_file_error& e)
+						{
+							add_error_popup_window("Failed to load graph", "", e.message);
+						}
+					}
+
+					return close_button_pressed;
+				}
+			}
+		);
 	}
 
 	ImGui::SeparatorText("Diagnostics");
