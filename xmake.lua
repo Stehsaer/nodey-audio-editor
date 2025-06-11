@@ -5,7 +5,6 @@ add_requires("jsoncpp 1.9.6",			{system=false})
 add_requires("libsdl2 2.32.2",			{system=false, configs={sdl2_image=false, sdl2_mixer=true, sdl2_ttf=false}})
 add_requires("ffmpeg 7.1",				{system=false, configs={shared=true, ffmpeg=false}})
 add_requires("boost 1.88.0",			{system=false, configs={cmake=false, fiber=true}})
-add_requires("nativefiledialog 1.1.6",	{system=false})
 add_requires("fftw 3.3.10",				{system=false})
 
 includes("third-party")
@@ -15,14 +14,13 @@ target("nodey_audio")
 	set_languages("c++23")
 	set_version("0.0")
 
-	add_deps("imgui-knobs", "imnodes")
+	add_deps("imgui-knobs", "imnodes", "portable-file-dialogs")
 	add_packages(
 		"libsdl2", 
 		"imgui", 
 		"jsoncpp", 
 		"ffmpeg", 
 		"boost", 
-		"nativefiledialog",
 		"fftw"
 	)
 	
