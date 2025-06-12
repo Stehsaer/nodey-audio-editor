@@ -4,6 +4,7 @@
 #include "infra/processor.hpp"
 
 #include "processor/audio-io.hpp"
+#include "processor/audio-vol.hpp"
 
 namespace infra
 {
@@ -11,5 +12,6 @@ namespace infra
 	{
 		Processor::register_processor<processor::Audio_input>();
 		Processor::register_processor<processor::Audio_output>();
+		Processor::register_processor<processor::Audio_vol>();
 	}
 }
