@@ -21,7 +21,7 @@ namespace config
 		inline static constexpr auto buffer_size = 2048;         // 缓冲区大小
 		inline static constexpr auto buffer_format = AUDIO_F32;  // 格式
 		inline static constexpr auto channels = 2;               // 双声道
-		inline static constexpr auto max_buffer_items = 64;      //  最大可以暂存的音频包个数
+		inline static constexpr auto max_buffer_items = 4;       //  最大可以暂存的音频包个数
 		inline static constexpr auto max_buffer_size = buffer_size * max_buffer_items * sizeof(Buffer_type);
 
 		inline static constexpr AVSampleFormat av_format = AV_SAMPLE_FMT_FLT;  // AVCODEC的对应格式
@@ -41,6 +41,15 @@ namespace config
 	{
 		const std::string_view audio_input_node_name = "audio_input";
 		const std::string_view audio_output_node_name = "audio_output";
+	}
+
+	// 处理器固定参数
+	namespace processor
+	{
+		namespace audio_volume
+		{
+			inline static constexpr float max_volume = 10;
+		}
 	}
 }
 
