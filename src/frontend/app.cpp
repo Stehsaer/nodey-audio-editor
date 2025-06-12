@@ -316,11 +316,14 @@ void App::draw_left_panel()
 				const auto& product = dynamic_cast<const processor::Audio_stream&>(product_raw);
 				ImGui::Text("Link %d: %s", id, product.get_typeinfo().name());
 
-				const std::string info
-					= std::format("{}/{}", product.buffered_count(), processor::max_queue_size);
+				const std::string info = std::format(
+					"{}/{}",
+					product.buffered_count(),
+					config::processor::audio_stream::buffer_size
+				);
 
 				ImGui::ProgressBar(
-					(float)product.buffered_count() / processor::max_queue_size,
+					(float)product.buffered_count() / config::processor::audio_stream::buffer_size,
 					ImVec2(full_width, ImGui::GetTextLineHeight()),
 					info.c_str()
 				);

@@ -46,6 +46,11 @@ namespace config
 	// 处理器固定参数
 	namespace processor
 	{
+		namespace audio_stream
+		{
+			inline static constexpr auto buffer_size = 8;
+		}
+
 		namespace audio_volume
 		{
 			inline static constexpr float max_volume = 10;

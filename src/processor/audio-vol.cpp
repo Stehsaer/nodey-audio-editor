@@ -34,8 +34,8 @@ namespace processor
 	infra::Processor::Info Audio_vol::get_processor_info()
 	{
 		return infra::Processor::Info{
-			.identifier = "audio_vol",
-			.display_name = "Audio Volume",
+			.identifier = "audio_volume_adjust",
+			.display_name = "Adjust Volume",
 			.singleton = false,
 			.generate = std::make_unique<Audio_vol>
 		};
@@ -65,11 +65,38 @@ namespace processor
 		};
 	}
 
+	template <typename T>
+	static void change_volume(
+		uint8_t* const* dst,
+		const uint8_t* const* src,
+		int channel_count,
+		int element_count,
+		float volume
+	)
+	{
+		const auto typed_dst = reinterpret_cast<T* const*>(dst);
+		const auto typed_src = reinterpret_cast<const T* const*>(src);
+
+		for (int ch = 0; ch < channel_count; ch++)
+		{
+			[[assume(typed_dst[ch] != nullptr)]];
+			[[assume(typed_src[ch] != nullptr)]];
+			[[assume(element_count > 0)]];
+			[[assume(uintptr_t(typed_dst[ch]) % 32 == 0)]];
+
+			// 把原数据先拷贝到目标数据中
+			std::copy(typed_src[ch], typed_src[ch] + element_count, typed_dst[ch]);
+
+			// 更改音量
+			for (int i = 0; i < element_count; i++) typed_dst[ch][i] *= volume;
+		}
+	};
+
 	void Audio_vol::process_payload(
 		const std::map<std::string, std::shared_ptr<infra::Processor::Product>>& input,
 		const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 		const std::atomic<bool>& stop_token,
-		std::any& user_data
+		std::any& user_data [[maybe_unused]]
 	) const
 	{
 		const auto input_item_optional = get_input_item<Audio_stream>(input, "input");
@@ -103,7 +130,7 @@ namespace processor
 		while (!stop_token)
 		{
 			// 获取数据
-			std::shared_ptr<Audio_frame> new_frame = std::make_shared<Audio_frame>();
+			std::shared_ptr<Audio_frame> dst_frame = std::make_shared<Audio_frame>();
 
 			const auto pop_result = input_item.try_pop();
 
@@ -122,19 +149,18 @@ namespace processor
 			// 获取帧参数
 
 			const auto& frame_shared_ptr = pop_result.value();
-			const auto& frame = *frame_shared_ptr->data();
+			const auto& src_frame = *frame_shared_ptr->data();
 
-			const auto frame_sample_rate = frame.sample_rate;
-			const auto frame_sample_element_count = frame.nb_samples;
-			const auto frame_channels = frame.ch_layout.nb_channels;
+			const auto frame_sample_element_count = src_frame.nb_samples;
+			const auto frame_channels = src_frame.ch_layout.nb_channels;
 
-			AVFrame* out_frame = new_frame->data();
+			AVFrame* out_frame = dst_frame->data();
 
-			out_frame->sample_rate = frame.sample_rate;
-			out_frame->format = frame.format;
-			out_frame->nb_samples = frame.nb_samples;
-			out_frame->ch_layout = frame.ch_layout;
-			out_frame->pts = frame.pts;
+			out_frame->sample_rate = src_frame.sample_rate;
+			out_frame->format = src_frame.format;
+			out_frame->nb_samples = src_frame.nb_samples;
+			out_frame->ch_layout = src_frame.ch_layout;
+			out_frame->pts = src_frame.pts;
 
 			av_frame_get_buffer(out_frame, 32);
 
@@ -147,53 +173,72 @@ namespace processor
 					std::format("Got {} channels", frame_channels)
 				);
 
-			uint8_t** data = frame.extended_data;
-			int bytes_per_sample = av_get_bytes_per_sample(static_cast<enum AVSampleFormat>(frame.format));
-			AVSampleFormat format = static_cast<AVSampleFormat>(frame.format);
+			const auto format = static_cast<AVSampleFormat>(src_frame.format);
+			const uint8_t* const* src_data = src_frame.data;
+			uint8_t* const* dst_data = out_frame->data;
 
-			for (int i = 0; i < out_frame->nb_samples; i++)
+			switch (format)
 			{
-				for (int ch = 0; ch < frame_channels; ch++)
-				{
-					switch (format)
-					{
-					case AV_SAMPLE_FMT_FLT:
-					case AV_SAMPLE_FMT_FLTP:
-					{
-						float* sample_ptr = (float*)(data[ch] + i * bytes_per_sample);
-						*sample_ptr *= vol;
-						if (*sample_ptr < -1.0f) *sample_ptr = -1.0f;
-						if (*sample_ptr > 1.0f) *sample_ptr = 1.0f;
-						memcpy(out_frame->data[ch] + i * bytes_per_sample, sample_ptr, bytes_per_sample);
-						break;
-					}
-					case AV_SAMPLE_FMT_S16:
-					case AV_SAMPLE_FMT_S16P:
-					{
-						int16_t* sample_ptr = (int16_t*)(data[ch] + i * bytes_per_sample);
-						*sample_ptr = apply_volume(*sample_ptr, vol);
-						memcpy(out_frame->data[ch] + i * bytes_per_sample, sample_ptr, bytes_per_sample);
-						break;
-					}
-					case AV_SAMPLE_FMT_S32:
-					case AV_SAMPLE_FMT_S32P:
-					{
-						int32_t* sample_ptr = (int32_t*)(data[ch] + i * bytes_per_sample);
-						*sample_ptr = apply_volume(*sample_ptr, vol);
-						memcpy(out_frame->data[ch] + i * bytes_per_sample, sample_ptr, bytes_per_sample);
-						break;
-					}
-					default:
-						throw Runtime_error(
-							"Audio format is not support",
-							"Audio volume processor requires an audio format properly.",
-							"Include FLT, S16, S32"
-						);
-					}
-				}
+			case AV_SAMPLE_FMT_FLT:
+				change_volume<float>(
+					dst_data,
+					src_data,
+					1,
+					frame_sample_element_count * frame_channels,
+					volume
+				);
+				break;
+			case AV_SAMPLE_FMT_FLTP:
+				change_volume<float>(dst_data, src_data, frame_channels, frame_sample_element_count, volume);
+				break;
+			case AV_SAMPLE_FMT_S16:
+				change_volume<int16_t>(
+					dst_data,
+					src_data,
+					1,
+					frame_sample_element_count * frame_channels,
+					volume
+				);
+				break;
+			case AV_SAMPLE_FMT_S16P:
+				change_volume<int16_t>(
+					dst_data,
+					src_data,
+					frame_channels,
+					frame_sample_element_count,
+					volume
+				);
+				break;
+			case AV_SAMPLE_FMT_S32:
+				change_volume<int32_t>(
+					dst_data,
+					src_data,
+					1,
+					frame_sample_element_count * frame_channels,
+					volume
+				);
+				break;
+			case AV_SAMPLE_FMT_S32P:
+				change_volume<int32_t>(
+					dst_data,
+					src_data,
+					frame_channels,
+					frame_sample_element_count,
+					volume
+				);
+				break;
+			default:
+				throw Runtime_error(
+					"Audio format is not support",
+					"Audio volume processor requires an audio format properly.",
+					"Include FLT, S16, S32"
+				);
 			}
-			push_frame(new_frame);
+
+			push_frame(dst_frame);
 		}
+
+		for (auto& channel : output_item) channel->set_eof();
 	}
 
 	void Audio_vol::draw_title()
@@ -203,19 +248,19 @@ namespace processor
 
 	bool Audio_vol::draw_content(bool readonly)
 	{
-		ImGui::SetNextItemWidth(200);
 		ImGui::BeginGroup();
 		ImGui::BeginDisabled(readonly);
 		{
+			ImGui::SetNextItemWidth(200);
 			ImGui::DragFloat(
 				"Volume",
-				&this->vol,
+				&this->volume,
 				0.01,
 				0.0,
 				config::processor::audio_volume::max_volume,
 				"%.2f"
 			);
-			vol = std::clamp<float>(vol, 0, config::processor::audio_volume::max_volume);
+			volume = std::clamp<float>(volume, 0, config::processor::audio_volume::max_volume);
 		}
 		ImGui::EndDisabled();
 		ImGui::EndGroup();

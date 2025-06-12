@@ -31,7 +31,7 @@ namespace processor
 	// - 负责更改音频音量
 	class Audio_vol : public infra::Processor
 	{
-		float vol = 1.0;
+		float volume = 1.0;
 
 	  public:
 
