@@ -2,7 +2,6 @@
 #include "utility/logic-error-utility.hpp"
 
 #include <algorithm>
-#include <iostream>
 #include <stack>
 
 namespace infra
@@ -12,7 +11,7 @@ namespace infra
 		Id_t id = find_empty(nodes);
 		const auto info = processor->get_processor_info_non_static();
 
-		nodes[id] = {.processor = std::move(processor), .pins = std::set<Id_t>()};
+		nodes[id] = {.processor = std::move(processor), .pins = std::set<Id_t>(), .pin_name_map = {}};
 		update_node_pin(id);
 
 		if (info.singleton) singleton_node_map.emplace(info.identifier, id);
@@ -54,13 +53,29 @@ namespace infra
 		auto& node = item.processor;
 		auto& set = item.pins;
 
-		// 清除旧引脚
+		std::map<std::string, Id_t> prev_input_link;
+		std::map<std::string, std::set<Id_t>> prev_output_link;
+
+		// 清除旧引脚并记录原来的链接
+		for (auto it = links.begin(); it != links.end();)
+		{
+			const auto [from, to] = it->second;
+
+			if (set.contains(from))
+			{
+				prev_output_link[pins.at(from).attribute.identifier].emplace(to);
+				it = links.erase(it);
+			}
+			else if (set.contains(to))
+			{
+				prev_input_link[pins.at(to).attribute.identifier] = from;
+				it = links.erase(it);
+			}
+			else
+				++it;
+		}
+
 		for (const auto& id : set) pins.erase(id);
-		std::erase_if(
-			links,
-			[&set](auto pair) -> bool
-			{ return set.contains(pair.second.from) || set.contains(pair.second.to); }
-		);
 
 		set.clear();
 		item.pin_name_map.clear();
@@ -71,8 +86,20 @@ namespace infra
 		{
 			const auto pin_id = find_empty(pins);
 			set.emplace(pin_id);
-			pins.erase(pin_id);
 			pins.emplace(pin_id, Pin{.parent = id, .attribute = attribute});
+
+			if (auto find_prev_input = prev_input_link.find(attribute.identifier);
+				find_prev_input != prev_input_link.end()
+				&& attribute.type.get() == pins.at(find_prev_input->second).attribute.type.get())
+				links.emplace(find_empty(links), Link{.from = find_prev_input->second, .to = pin_id});
+
+			if (auto find_prev_output = prev_output_link.find(attribute.identifier);
+				find_prev_output != prev_output_link.end())
+				for (const auto& prev_to : find_prev_output->second)
+				{
+					if (attribute.type.get() == pins.at(prev_to).attribute.type.get())
+						links.emplace(find_empty(links), Link{.from = pin_id, .to = prev_to});
+				}
 
 			if (item.pin_name_map.contains(attribute.identifier))
 				THROW_LOGIC_ERROR("Pin name {} already exists for node ID {}", attribute.identifier, id);
@@ -337,8 +364,6 @@ namespace infra
 
 		const auto& nodes_json = value["nodes"];
 		const auto& links_json = value["links"];
-
-		std::cout << links_json << std::endl;
 
 		if (!nodes_json.isObject()) throw Invalid_file_error("Invalid nodes format, expected object");
 		if (!links_json.isArray()) throw Invalid_file_error("Invalid links format, expected array");
