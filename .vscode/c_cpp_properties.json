@@ -1,0 +1,26 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/sk/catkin_ws/devel/include/**",
+        "/opt/ros/noetic/include/**",
+        "/home/sk/catkin_ws/src/VINS-Fusion/camera_models/include/**",
+        "/home/sk/catkin_ws/src/gazebo_ros_pkgs/gazebo_plugins/include/**",
+        "/home/sk/catkin_ws/src/gazebo_ros_pkgs/gazebo_ros/include/**",
+        "/home/sk/catkin_ws/src/gazebo_ros_pkgs/gazebo_ros_control/include/**",
+        "/home/sk/PX4_Firmware/Tools/sitl_gazebo/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}

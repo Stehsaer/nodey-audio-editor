@@ -50,5 +50,35 @@ namespace config
 // 运行时参数
 namespace runtime_config
 {
-	extern float ui_scale;  // UI缩放比例
+
+	// UI参数
+    extern float ui_scale;
+    extern int side_panel_width;
+    extern bool show_toolbar;
+    extern bool show_side_panel;
+    extern bool show_minimap;
+    extern bool show_grid;
+    extern float grid_size;
+    extern bool snap_to_grid;
+    
+    // 音频参数
+    extern int audio_sample_rate;
+    extern int audio_buffer_size;
+    extern int audio_channels;
+    extern float master_volume;
+    extern int audio_device_id;
+    
+    // 性能参数
+    extern int max_audio_threads;
+    extern int render_cache_size;
+    extern bool enable_gpu_acceleration;
+    extern bool enable_multithreading;
+    extern int fps_limit;
+    extern bool vsync;
+    
+    // 调试参数
+    extern bool show_performance_overlay;
+    extern bool enable_debug_logging;
+    extern bool show_memory_usage;
+    extern bool enable_profiling;
 }
