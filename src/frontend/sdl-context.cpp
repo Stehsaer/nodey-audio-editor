@@ -6,36 +6,8 @@
 // 运行时参数定义
 namespace runtime_config
 {
-    // UI参数
-    float ui_scale = 1.0f;
-    int side_panel_width = config::appearance::side_panel_width;
-    bool show_toolbar = true;
-    bool show_side_panel = true;
-    bool show_minimap = true;
-    bool show_grid = true;
-    float grid_size = 20.0f;
-    bool snap_to_grid = false;
-    
-    // 音频参数
-    int audio_sample_rate = config::audio::sample_rate;
-    int audio_buffer_size = config::audio::buffer_size;
-    int audio_channels = config::audio::channels;
-    float master_volume = 1.0f;
-    int audio_device_id = 0;
-    
-    // 性能参数
-    int max_audio_threads = 4;
-    int render_cache_size = 64;
-    bool enable_gpu_acceleration = false;
-    bool enable_multithreading = true;
-    int fps_limit = 60;
-    bool vsync = true;
-    
-    // 调试参数
-    bool show_performance_overlay = false;
-    bool enable_debug_logging = false;
-    bool show_memory_usage = false;
-    bool enable_profiling = false;
+	// UI参数
+	float ui_scale = 1.0f;
 }
 
 SDL_context::SDL_context()
