@@ -55,5 +55,6 @@ void Popup_modal_manager::draw()
 
 void Popup_modal_manager::open_window(Window window)
 {
+	std::lock_guard lock(add_window_mutex);
 	add_window_queue.emplace(std::make_unique<Internal_window>(std::move(window)));
 }

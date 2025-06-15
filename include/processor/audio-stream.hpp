@@ -46,7 +46,7 @@ namespace processor
 	// - 管理与同步音频帧的生产和消费
 	class Audio_stream : public infra::Processor::Product
 	{
-		boost::fibers::buffered_channel<std::shared_ptr<Audio_frame>> channel;
+		boost::fibers::buffered_channel<std::shared_ptr<const Audio_frame>> channel;
 		std::atomic<size_t> buffered_frames = 0;
 		std::atomic<bool> end_of_stream;
 
@@ -65,13 +65,13 @@ namespace processor
 
 		// 尝试向通道中推送音频帧
 		// - 推送成功时，返回`boost::fibers::channel_op_status::success`
-		boost::fibers::channel_op_status try_push(std::shared_ptr<Audio_frame> frame);
+		boost::fibers::channel_op_status try_push(std::shared_ptr<const Audio_frame> frame);
 
 		// 尝试从通道中取出音频帧
 		// - 有数据时，通过std::expected返回音频帧
 		// - 否则，通过`boost::fibers::channel_op_status`返回状态
 		// - 注意，该操作类似queue.pop()，将删除缓冲区中的对应帧
-		std::expected<std::shared_ptr<Audio_frame>, boost::fibers::channel_op_status> try_pop();
+		std::expected<std::shared_ptr<const Audio_frame>, boost::fibers::channel_op_status> try_pop();
 
 		// 音频流是否到达末尾
 		bool eof() const { return end_of_stream.load(); }

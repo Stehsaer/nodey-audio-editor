@@ -56,6 +56,7 @@ namespace infra
 		std::map<Id_t, Pin> pins;                        // 节点的引脚
 		std::map<Id_t, Link> links;                      // 连结
 		std::map<std::string, Id_t> singleton_node_map;  // 存储单例节点的映射
+		bool modified = true;
 
 	  private:
 
