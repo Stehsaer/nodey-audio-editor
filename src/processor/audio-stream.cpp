@@ -57,7 +57,7 @@ namespace processor
 		return *frame;
 	}
 
-	boost::fibers::channel_op_status Audio_stream::try_push(std::shared_ptr<Audio_frame> frame)
+	auto Audio_stream::try_push(std::shared_ptr<const Audio_frame> frame) -> boost::fibers::channel_op_status
 	{
 		const auto status = channel.try_push(std::move(frame));
 		if (status == boost::fibers::channel_op_status::success) ++buffered_frames;
@@ -65,9 +65,10 @@ namespace processor
 		return status;
 	}
 
-	std::expected<std::shared_ptr<Audio_frame>, boost::fibers::channel_op_status> Audio_stream::try_pop()
+	auto Audio_stream::try_pop()
+		-> std::expected<std::shared_ptr<const Audio_frame>, boost::fibers::channel_op_status>
 	{
-		std::shared_ptr<Audio_frame> frame;
+		std::shared_ptr<const Audio_frame> frame;
 		const auto status = channel.try_pop(frame);
 		if (status == boost::fibers::channel_op_status::success)
 		{
