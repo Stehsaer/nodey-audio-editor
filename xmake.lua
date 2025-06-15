@@ -7,6 +7,7 @@ add_requires("ffmpeg 7.1",				{system=false, configs={shared=true, ffmpeg=false}
 add_requires("boost 1.88.0",			{system=false, configs={cmake=false, fiber=true}})
 add_requires("nativefiledialog 1.1.6",	{system=false})
 add_requires("fftw 3.3.10",				{system=false})
+add_requires("soundtouch 2.3.2",		{system=false})
 
 includes("third-party")
 
@@ -23,7 +24,8 @@ target("nodey_audio")
 		"ffmpeg", 
 		"boost", 
 		"nativefiledialog",
-		"fftw"
+		"fftw",
+		"soundtouch"
 	)
 	
 	add_files("src/**.cpp")
