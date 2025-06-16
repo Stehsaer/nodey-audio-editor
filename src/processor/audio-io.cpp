@@ -21,7 +21,7 @@ namespace processor
 		return infra::Processor::Info{
 			.identifier = "audio_input",
 			.display_name = "Audio Input",
-			.singleton = true,
+			.singleton = false,
 			.generate = std::make_unique<Audio_input>
 		};
 	}
@@ -434,6 +434,9 @@ namespace processor
 					"Cannot convert audio sample rate or format. Internal error may have occurred.",
 					"swr_convert() returned error"
 				);
+
+			if constexpr (std::is_same_v<config::audio::Buffer_type, float>)
+				for (auto& val : output_buffer) val = std::clamp<float>(val, -1.0, +1.0);
 
 			while (SDL_GetQueuedAudioSize(frontend_context.audio_device) > config::audio::max_buffer_size)
 			{
