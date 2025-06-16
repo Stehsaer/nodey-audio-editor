@@ -86,7 +86,7 @@ void App::draw_node(infra::Id_t id, const infra::Graph::Node& node)
 		ImNodes::EndNodeTitleBar();
 
 		// 绘制节点本体
-		if (node.processor->draw_content(false)) graph.update_node_pin(id);
+		if (node.processor->draw_content(false) && state == State::Editing) graph.update_node_pin(id);
 
 		// 绘制节点输入输出端口
 		ImGui::NewLine();
@@ -131,7 +131,7 @@ void App::draw_add_node_menu()
 		if (ImGui::MenuItem(info.display_name.c_str(), nullptr, singleton_and_exists, !singleton_and_exists))
 		{
 			const auto new_id = graph.add_node(item.second.generate());
-			new_node_id = new_id;
+			ImNodes::SetNodeScreenSpacePos(new_id, ImGui::GetMousePos());
 		}
 	}
 }
@@ -140,6 +140,7 @@ void App::draw_menubar()
 {
 	if (ImGui::BeginMainMenuBar())
 	{
+		main_menu_bar_height = ImGui::GetWindowSize().y;
 		ImGui::EndMainMenuBar();
 	}
 }
@@ -148,15 +149,15 @@ void App::draw_node_editor()
 {
 	ImNodes::BeginNodeEditor();
 	{
-		// 把新节点放置在鼠标处
-		if (new_node_id.has_value())
+		for (auto& [i, node] : graph.nodes)
 		{
-			ImNodes::SetNodeScreenSpacePos(new_node_id.value(), ImGui::GetMousePos());
-			new_node_id.reset();
+			draw_node(i, node);
+			node.position = ImNodes::GetNodeGridSpacePos(i);
 		}
 
-		for (auto& [i, item] : graph.nodes) draw_node(i, item);
 		for (auto [i, link] : graph.links) ImNodes::Link(i, link.from, link.to);
+
+		ImNodes::MiniMap(config::appearance::node_editor_minimap_fraction, ImNodesMiniMapLocation_TopRight);
 
 		if (state == State::Editing)
 		{
@@ -259,9 +260,28 @@ void App::draw_node_editor_context_menu()
 	}
 }
 
-void App::draw_left_panel()
+std::string App::save_graph_as_string() const
 {
-	const auto full_width = config::appearance::left_panel_width * runtime_config::ui_scale
+	const auto json = graph.serialize();
+	Json::StreamWriterBuilder writer;
+	writer["indentation"] = "  ";  // 设置缩进为两个空格
+	return Json::writeString(writer, json);
+}
+
+void App::load_graph_from_string(const std::string& json_string)
+{
+	Json::Value json;
+	const auto parse_result = Json::Reader().parse(json_string, json, false);
+	if (!parse_result) throw infra::Graph::Invalid_file_error("Failed to parse JSON");
+
+	graph = infra::Graph::deserialize(json);
+
+	for (const auto& [id, node] : graph.nodes) ImNodes::SetNodeGridSpacePos(id, node.position);
+}
+
+void App::draw_side_panel()
+{
+	const auto full_width = config::appearance::side_panel_width * runtime_config::ui_scale
 						  - 2 * ImGui::GetStyle().WindowPadding.x;
 
 	{
@@ -298,6 +318,58 @@ void App::draw_left_panel()
 			ImGui::EndDisabled();
 			break;
 		}
+	}
+
+	if (ImGui::Button("Emit JSON", {full_width, ImGui::GetTextLineHeight() * 2}))
+	{
+		try
+		{
+			const std::string json_string = save_graph_as_string();
+			std::println("{}", json_string);
+		}
+		catch (const std::runtime_error& e)
+		{
+			add_error_popup_window("Failed to serialize graph", "", e.what());
+		}
+	}
+
+	if (ImGui::Button("Load JSON", {full_width, ImGui::GetTextLineHeight() * 2}))
+	{
+		popup_manager.open_window(
+			Popup_modal_manager::Window{
+				.title = "Load Graph JSON",
+				.flags
+				= ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove,
+				.has_close_button = true,
+				.keep_centered = true,
+				.render_func =
+					[this](bool close_button_pressed)
+				{
+					static std::string json_string;
+					ImGui::InputTextMultiline(
+						"##json_input",
+						&json_string,
+						ImVec2(300, ImGui::GetTextLineHeight() * 10),
+						ImGuiInputTextFlags_AllowTabInput
+					);
+
+					if (ImGui::Button("Load", {300, ImGui::GetTextLineHeight() * 2}))
+					{
+						try
+						{
+							load_graph_from_string(json_string);
+							return true;
+						}
+						catch (const infra::Graph::Invalid_file_error& e)
+						{
+							add_error_popup_window("Failed to load graph", "", e.message);
+						}
+					}
+
+					return close_button_pressed;
+				}
+			}
+		);
 	}
 
 	ImGui::SeparatorText("Diagnostics");
@@ -337,21 +409,41 @@ void App::draw_left_panel()
 	}
 }
 
-void App::draw_right_panel()
+void App::draw_main_panel()
 {
 	draw_node_editor();
+}
+
+void App::draw_toolbar()
+{
+	const auto area_width = config::appearance::toolbar_internal_width * runtime_config::ui_scale;
+
+	ImGui::Button(ICON_CHECK "##toolbar-placeholder-check", {area_width, area_width});
+	if (ImGui::BeginItemTooltip())
+	{
+		ImGui::Text("Placeholder 1 (check icon). Place descriptive text here.");
+		ImGui::EndTooltip();
+	}
+
+	ImGui::Button(ICON_COPY "##toolbar-placeholder-copy", {area_width, area_width});
+	if (ImGui::BeginItemTooltip())
+	{
+		ImGui::Text("Placeholder 2 (copy icon). Place descriptive text here.");
+		ImGui::EndTooltip();
+	}
 }
 
 void App::draw()
 {
 	draw_menubar();
 
-	const auto left_panel_width_pixel = config::appearance::left_panel_width * runtime_config::ui_scale;
+	const auto side_panel_width_pixel = config::appearance::side_panel_width * runtime_config::ui_scale;
+	const auto [display_size_x, display_size_y] = ImGui::GetIO().DisplaySize;
 
-	// 左侧面板
+	// 侧面板
 	{
-		ImGui::SetNextWindowPos(ImVec2(0, 0));
-		ImGui::SetNextWindowSize({left_panel_width_pixel, ImGui::GetIO().DisplaySize.y});
+		ImGui::SetNextWindowPos(ImVec2(display_size_x - side_panel_width_pixel, 0));
+		ImGui::SetNextWindowSize({side_panel_width_pixel, ImGui::GetIO().DisplaySize.y});
 		ImGui::SetNextWindowBgAlpha(1.0f);
 
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -364,16 +456,14 @@ void App::draw()
 			))
 			THROW_LOGIC_ERROR("Failed to create left window");
 		ImGui::PopStyleVar(2);
-		draw_left_panel();
+		draw_side_panel();
 		ImGui::End();
 	}
 
-	// 右侧面板
+	// 主面板
 	{
-		ImGui::SetNextWindowPos(ImVec2(left_panel_width_pixel, 0));
-		ImGui::SetNextWindowSize(
-			{ImGui::GetIO().DisplaySize.x - left_panel_width_pixel, ImGui::GetIO().DisplaySize.y}
-		);
+		ImGui::SetNextWindowPos(ImVec2(0, 0));
+		ImGui::SetNextWindowSize({display_size_x - side_panel_width_pixel, ImGui::GetIO().DisplaySize.y});
 		ImGui::SetNextWindowBgAlpha(1.0f);
 
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -386,7 +476,27 @@ void App::draw()
 			))
 			THROW_LOGIC_ERROR("Failed to create right window");
 		ImGui::PopStyleVar(2);
-		draw_right_panel();
+		draw_main_panel();
+		ImGui::End();
+	}
+
+	// 工具栏
+	{
+		const auto toolbar_margin_pixel = config::appearance::toolbar_margin * runtime_config::ui_scale;
+		const auto toolbar_internal_width_pixel
+			= config::appearance::toolbar_internal_width * runtime_config::ui_scale;
+		const auto toolbar_width_pixel = toolbar_internal_width_pixel + 2 * ImGui::GetStyle().WindowPadding.x;
+
+		ImGui::SetNextWindowPos({toolbar_margin_pixel, toolbar_margin_pixel + main_menu_bar_height});
+		ImGui::SetNextWindowSize({toolbar_width_pixel, 0});
+		if (!ImGui::Begin(
+				"##toolbar",
+				nullptr,
+				ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize
+					| ImGuiWindowFlags_NoSavedSettings
+			))
+			THROW_LOGIC_ERROR("Failed to create toolbar window");
+		draw_toolbar();
 		ImGui::End();
 	}
 

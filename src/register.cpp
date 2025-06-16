@@ -3,6 +3,8 @@
 
 #include "infra/processor.hpp"
 
+#include "processor/audio-amix.hpp"
+#include "processor/audio-bimix.hpp"
 #include "processor/audio-io.hpp"
 #include "processor/audio-velocity.hpp"
 #include "processor/audio-vol.hpp"
@@ -14,7 +16,12 @@ namespace infra
 		Processor::register_processor<processor::Audio_input>();
 		Processor::register_processor<processor::Audio_output>();
 		Processor::register_processor<processor::Audio_vol>();
+<<<<<<< Updated upstream
 		Processor::register_processor<processor::Velocity_modifier>();
 		Processor::register_processor<processor::Pitch_modifier>();
+=======
+		Processor::register_processor<processor::Audio_amix>();
+		Processor::register_processor<processor::Audio_bimix>();
+>>>>>>> Stashed changes
 	}
 }

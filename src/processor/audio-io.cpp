@@ -1,10 +1,11 @@
 #include "processor/audio-io.hpp"
 #include "config.hpp"
 #include "frontend/imgui-utility.hpp"
+#include "utility/dialog-utility.hpp"
 #include "utility/free-utility.hpp"
 
+#include <SDL_events.h>
 #include <boost/fiber/operations.hpp>
-#include <nfd.h>
 #include <print>
 
 extern "C"
@@ -20,7 +21,7 @@ namespace processor
 		return infra::Processor::Info{
 			.identifier = "audio_input",
 			.display_name = "Audio Input",
-			.singleton = true,
+			.singleton = false,
 			.generate = std::make_unique<Audio_input>
 		};
 	}
@@ -188,6 +189,18 @@ namespace processor
 		for (auto& channel : output_item) channel->set_eof();
 	}
 
+	Json::Value Audio_input::serialize() const
+	{
+		Json::Value value(Json::ValueType::objectValue);
+		value["file_path"] = file_path;
+		return value;
+	}
+
+	void Audio_input::deserialize(const Json::Value& value)
+	{
+		file_path = value["file_path"].asString();
+	}
+
 	void Audio_input::draw_title()
 	{
 		imgui_utility::shadowed_text("Audio Input");
@@ -202,13 +215,15 @@ namespace processor
 			// 选择文件
 			if (ImGui::Button("Choose File"))
 			{
-				nfdchar_t* out_path = nullptr;
-				const nfdresult_t result = NFD_OpenDialog("wav,mp3,flac", nullptr, &out_path);
-				if (result == NFD_OKAY)
-				{
-					file_path = out_path;
-					free(out_path);
-				}
+				const auto open_file_result = open_file_dialog(
+					"Select Audio File",
+					{"Audio Files (*.wav, *.mp3, *.flac, *.ogg)",
+					 "*.wav *.mp3 *.flac *.ogg",
+					 "All Files",
+					 "*.*"}
+				);
+
+				if (open_file_result.has_value()) file_path = open_file_result.value();
 			}
 		}
 		ImGui::EndDisabled();
@@ -419,6 +434,9 @@ namespace processor
 					"Cannot convert audio sample rate or format. Internal error may have occurred.",
 					"swr_convert() returned error"
 				);
+
+			if constexpr (std::is_same_v<config::audio::Buffer_type, float>)
+				for (auto& val : output_buffer) val = std::clamp<float>(val, -1.0, +1.0);
 
 			while (SDL_GetQueuedAudioSize(frontend_context.audio_device) > config::audio::max_buffer_size)
 			{
