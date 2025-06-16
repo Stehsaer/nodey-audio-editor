@@ -69,7 +69,7 @@ class Settings_window
 
   public:
 
-	static Popup_modal_manager::Window create(App_settings& settings);
+	static Popup_manager::Window create(App_settings& settings);
 
 	bool operator()(bool close_button_pressed);
 

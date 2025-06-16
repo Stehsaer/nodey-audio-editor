@@ -1,11 +1,6 @@
 #pragma once
 
 // 系统头文件
-#ifdef _WIN32
-#include <psapi.h>
-#include <windows.h>
-#elif defined(__linux__)
-#endif
 
 #include <atomic>
 #include <cstddef>
@@ -25,12 +20,12 @@
 
 // 项目头文件
 #include "config.hpp"
+#include "frontend/app/help.hpp"
+#include "frontend/app/popup.hpp"
+#include "frontend/app/settings.hpp"
 #include "frontend/font.hpp"
-#include "frontend/help.hpp"
 #include "frontend/imgui-context.hpp"
-#include "frontend/popup.hpp"
 #include "frontend/sdl-context.hpp"
-#include "frontend/settings.hpp"
 #include "infra/graph.hpp"
 #include "infra/processor.hpp"
 #include "infra/runner.hpp"
@@ -87,9 +82,9 @@ class App
 		= Node_editor_context_menu_state::Closed;
 
 	// UI核心对象
-	SDL_context sdl_context;            // SDL渲染上下文
-	Imgui_context imgui_context;        // ImGui上下文
-	Popup_modal_manager popup_manager;  // 弹窗管理器
+	SDL_context sdl_context;      // SDL渲染上下文
+	Imgui_context imgui_context;  // ImGui上下文
+	Popup_manager popup_manager;  // 弹窗管理器
 
 	// 图形和运行器
 	infra::Graph graph;                     // 节点图数据结构
@@ -199,7 +194,7 @@ class App
 	void draw_side_panel();           // 绘制侧边面板
 	void draw_main_panel();           // 绘制主面板（节点编辑器）
 	void draw_toolbar();              // 绘制工具栏
-	void draw_performance_overlay();  // 绘制性能信息覆盖层
+	void draw_diagnostics_overlay();  // 绘制性能信息覆盖层
 
 	void sync_ui_settings() const;  // 同步UI设置到ImGui/ImNode上下文
 
@@ -216,8 +211,6 @@ class App
 	// 视图菜单子项
 	void draw_view_panels_menu();     // 绘制面板显示控制菜单
 	void draw_view_center_menu();     // 绘制居中视图菜单
-	void draw_view_status_menu();     // 绘制状态信息菜单
-	void draw_view_status_info();     // 绘制基本状态信息
 	void draw_view_preview_status();  // 绘制预览状态信息
 
 	// =============================================================================

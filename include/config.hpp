@@ -44,6 +44,11 @@ namespace config
 		const std::string_view audio_input_node_name = "audio_input";
 		const std::string_view audio_output_node_name = "audio_output";
 	}
+
+	namespace app
+	{
+		const std::string_view source_page = "https://github.com/Stehsaer/nodey-audio-editor";  // 源码页面
+	}
 }
 
 // 运行时参数

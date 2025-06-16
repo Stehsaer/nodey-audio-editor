@@ -1,10 +1,12 @@
 #include "frontend/app.hpp"
-#include "frontend/help.hpp"
 #include "frontend/nerdfont.hpp"
 #include "imnodes.h"
+
 #include "processor/audio-io.hpp"
+
 #include "utility/anycast-utility.hpp"
 #include "utility/dialog-utility.hpp"
+#include "utility/system.hpp"
 
 #include <imgui_stdlib.h>
 
@@ -12,7 +14,6 @@
 #include <filesystem>
 #include <fstream>
 #include <imgui.h>
-#include <sstream>
 #include <utility>
 
 void App::draw()
@@ -88,8 +89,8 @@ void App::draw()
 		ImGui::End();
 	}
 
-	if (show_diagnostics) draw_performance_overlay();
-	if (show_demo_window) ImGui::ShowDemoWindow();
+	if (show_diagnostics) draw_diagnostics_overlay();
+	if (show_demo_window) ImGui::ShowDemoWindow(&show_demo_window);
 
 	handle_keyboard_shortcuts();
 }
@@ -135,25 +136,24 @@ void App::draw_menubar_file()
 		if (ImGui::MenuItem("New", "Ctrl+N")) new_project_async();
 		if (ImGui::MenuItem("Open", "Ctrl+O")) open_project();
 		if (ImGui::MenuItem("Save", "Ctrl+S")) save_project();
+		ImGui::Separator();
+
+		if (ImGui::MenuItem("Exit", "Ctrl+Q"))
+		{
+			// 判断是否有未保存更改
+			if (graph.modified)
+			{
+				add_exit_confirm_window();
+			}
+			else
+			{
+				SDL_Event quit_event;
+				quit_event.type = SDL_QUIT;
+				SDL_PushEvent(&quit_event);
+			}
+		}
 	}
 	ImGui::EndDisabled();
-
-	ImGui::Separator();
-
-	if (ImGui::MenuItem("Exit", "Ctrl+Q"))
-	{
-		// 判断是否有未保存更改
-		if (graph.modified)
-		{
-			add_exit_confirm_window();
-		}
-		else
-		{
-			SDL_Event quit_event;
-			quit_event.type = SDL_QUIT;
-			SDL_PushEvent(&quit_event);
-		}
-	}
 }
 
 // 绘制主菜单栏的编辑(EDIT)选项
@@ -161,15 +161,29 @@ void App::draw_menubar_edit()
 {
 	ImGui::BeginDisabled(state != State::Editing);
 	{
-		if (ImGui::MenuItem("Undo", "Ctrl+Z")) undo();
-		if (ImGui::MenuItem("Redo", "Ctrl+Y")) redo();
+		if (ImGui::MenuItem("Select All", "Ctrl+A"))
+		{
+			ImNodes::ClearNodeSelection();
+			ImNodes::ClearLinkSelection();
+			for (const auto& [id, _] : graph.nodes) ImNodes::SelectNode(id);
+			for (const auto& [id, _] : graph.links) ImNodes::SelectLink(id);
+		}
 
-		ImGui::Separator();
-		if (ImGui::MenuItem("Remove Selected All", "Del"))
+		if (ImGui::MenuItem("Undo", "Ctrl+Z", false, !undo_stack.empty())) undo();
+		if (ImGui::MenuItem("Redo", "Ctrl+Y", false, !redo_stack.empty())) redo();
+
+		if (ImGui::MenuItem(
+				"Remove Selected",
+				"Del",
+				false,
+				ImNodes::NumSelectedNodes() + ImNodes::NumSelectedLinks() > 0
+			))
 		{
 			save_undo_state();
 			remove_selected_nodes();
 		}
+
+		ImGui::Separator();
 
 		if (ImGui::MenuItem("Settings")) popup_manager.open_window(Settings_window::create(app_settings));
 	}
@@ -182,26 +196,14 @@ void App::draw_menubar_view()
 	draw_view_panels_menu();
 	ImGui::Separator();
 	draw_view_center_menu();
-	ImGui::Separator();
-	ImGui::Separator();
-	draw_view_status_menu();
 }
 
 // 绘制主菜单栏的帮助(HELP)选项
 void App::draw_menubar_help()
 {
-	if (ImGui::MenuItem("View Documentation", "F1"))
-	{
-		about::show_help_documentation_window(this, popup_manager);
-	}
-	if (ImGui::MenuItem("About"))
-	{
-		about::show_about_window(this, popup_manager);
-	}
-	if (ImGui::MenuItem("Check for Updates"))
-	{
-		about::show_updates_window(this, popup_manager);
-	}
+	if (ImGui::MenuItem("View Documentation")) popup_manager.open_window(help_documentation_window());
+	if (ImGui::MenuItem("Visit Source Page")) open_url(config::app::source_page);
+	if (ImGui::MenuItem("About")) popup_manager.open_window(about_window());
 }
 
 //==============================================================================
@@ -264,6 +266,8 @@ void App::draw_toolbar()
 	}
 	ImGui::EndDisabled();
 
+	ImGui::Separator();
+
 	// 撤销按钮
 	ImGui::BeginDisabled(undo_stack.empty() || state != State::Editing);
 	if (ImGui::Button(ICON_UNDO "##toolbar-undo", {area_width, area_width})) undo();
@@ -275,6 +279,8 @@ void App::draw_toolbar()
 	if (ImGui::Button(ICON_REDO "##toolbar-redo", {area_width, area_width})) redo();
 	if (ImGui::BeginItemTooltip()) ImGui::Text("Redo Action"), ImGui::EndTooltip();
 	ImGui::EndDisabled();
+
+	ImGui::Separator();
 
 	// 复制按钮
 	ImGui::BeginDisabled((ImNodes::NumSelectedNodes() == 0) || state != State::Editing);
@@ -329,9 +335,9 @@ void App::run()
 		SDL_SetWindowTitle(
 			sdl_context.get_window_ptr(),
 			std::format(
-				"{}{} {}",
+				"{} {} {}",
 				config::appearance::window_title,
-				graph.modified ? "*" : "",
+				graph.modified ? "(Unsaved)" : "",
 				state == State::Previewing ? "(Previewing)" : ""
 			)
 				.c_str()
@@ -629,6 +635,12 @@ void App::new_project_async()
 		{
 			try
 			{
+				if (!graph.modified)  // 没有修改，直接创建
+				{
+					clear_project();
+					return;
+				}
+
 				auto future = add_new_project_confirm_window_async();
 
 				while (true)
@@ -691,6 +703,7 @@ void App::load_graph_from_string(const std::string& json_string)
 	if (!parse_result) throw infra::Graph::Invalid_file_error("Failed to parse JSON");
 
 	graph = infra::Graph::deserialize(json);
+	graph.modified = false;
 
 	for (const auto& [id, node] : graph.nodes) ImNodes::SetNodeGridSpacePos(id, node.position);
 }
@@ -1231,8 +1244,10 @@ void App::paste_nodes()
 // 绘制面板显示控制菜单
 void App::draw_view_panels_menu()
 {
-	ImGui::MenuItem("Show Toolbar", nullptr, &app_settings.ui.show_toolbar);
-	ImGui::MenuItem("Show Node Editor Minimap", nullptr, &app_settings.ui.show_minimap);
+	ImGui::MenuItem("Toolbar", nullptr, &app_settings.ui.show_toolbar);
+	ImGui::MenuItem("Node Editor Minimap", nullptr, &app_settings.ui.show_minimap);
+	ImGui::MenuItem("Diagnostics Overlay", nullptr, &show_diagnostics);
+	ImGui::MenuItem("ImGUI Demo", nullptr, &show_demo_window);
 }
 
 // 绘制节点编辑器视图控制菜单
@@ -1249,7 +1264,7 @@ void App::draw_view_center_menu()
 		// 网格大小预设 - 显示基础网格大小，不考虑缩放
 		constexpr auto grid_sizes = std::to_array({10.0f, 15.0f, 20.0f, 25.0f, 30.0f, 40.0f, 50.0f});
 
-		ImGui::Text("Base Grid Size:");
+		ImGui::Text("Grid Size:");
 		for (auto grid_size : grid_sizes)
 		{
 			if (ImGui::MenuItem(
@@ -1261,49 +1276,6 @@ void App::draw_view_center_menu()
 		}
 
 		ImGui::EndMenu();
-	}
-}
-
-// 绘制状态信息菜单
-void App::draw_view_status_menu()
-{
-	if (ImGui::BeginMenu("Status"))
-	{
-		draw_view_status_info();
-		draw_view_preview_status();
-
-		ImGui::Separator();
-		ImGui::MenuItem("Show Performance Metrics", nullptr, &show_diagnostics);
-
-		ImGui::EndMenu();
-	}
-}
-
-// 绘制基本状态信息
-void App::draw_view_status_info()
-{
-	std::string state_text = get_current_state_text(state.load());
-
-	ImGui::Text("Current State: %s", state_text.c_str());
-	ImGui::Text("Nodes: %zu", graph.nodes.size());
-	ImGui::Text("Links: %zu", graph.links.size());
-	ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
-}
-
-// 绘制预览状态信息
-void App::draw_view_preview_status()
-{
-	if (state == State::Previewing && runner)
-	{
-		ImGui::Separator();
-		ImGui::Text("Preview Status:");
-
-		auto& resources = runner->get_processor_resources();
-		auto [running_count, finished_count, error_count] = count_processor_states(resources);
-
-		ImGui::Text("  Running: %zu", running_count);
-		ImGui::Text("  Finished: %zu", finished_count);
-		ImGui::Text("  Errors: %zu", error_count);
 	}
 }
 
@@ -1374,248 +1346,112 @@ std::tuple<size_t, size_t, size_t> App::count_processor_states(const auto& resou
 /*性能窗口*/
 
 // 绘制悬浮性能指标覆盖层
-void App::draw_performance_overlay()
+void App::draw_diagnostics_overlay()
 {
 	if (!show_diagnostics) return;
 
 	// 设置覆盖层默认位置（左下角）
 	const auto [display_size_x, display_size_y] = ImGui::GetIO().DisplaySize;
 	const float overlay_width = 280 * runtime_config::ui_scale;
-	const float overlay_height = 200 * runtime_config::ui_scale;  // 预估高度
-	const float overlay_margin = 10 * runtime_config::ui_scale;
+	const float overlay_margin = config::appearance::toolbar_margin * runtime_config::ui_scale;
 
 	// 左下角位置
 	const float overlay_pos_x = overlay_margin;
-	const float overlay_pos_y = display_size_y - overlay_height - overlay_margin;
+	const float overlay_pos_y = display_size_y - overlay_margin;
 
 	// 只在第一次使用时设置位置，之后允许用户自由移动
-	ImGui::SetNextWindowPos(ImVec2(overlay_pos_x, overlay_pos_y), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowSize(ImVec2(overlay_width, 0), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowBgAlpha(0.35f);  // 半透明背景
+	ImGui::SetNextWindowPos(ImVec2(overlay_pos_x, overlay_pos_y), ImGuiCond_Always, {0, 1});
+	ImGui::SetNextWindowSize(ImVec2(overlay_width, 0), ImGuiCond_Always);
 
 	// 创建可移动的覆盖层窗口
-	const ImGuiWindowFlags overlay_flags = ImGuiWindowFlags_NoDecoration |        // 无标题栏、边框等
-										   ImGuiWindowFlags_AlwaysAutoResize |    // 自动调整大小
-										   ImGuiWindowFlags_NoSavedSettings |     // 不保存设置
-										   ImGuiWindowFlags_NoFocusOnAppearing |  // 出现时不获取焦点
-										   ImGuiWindowFlags_NoNav;                // 禁用导航
+	const ImGuiWindowFlags overlay_flags = ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse
+										 | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav
+										 | ImGuiWindowFlags_NoMove;
 
-	// 静态变量控制锁定状态
-	static bool is_locked = false;
-
-	// 如果锁定，添加 NoMove
-	ImGuiWindowFlags current_flags = overlay_flags;
-	if (is_locked)
+	if (ImGui::Begin("Diagnostics", &show_diagnostics, overlay_flags))
 	{
-		current_flags |= ImGuiWindowFlags_NoMove;
-	}
-
-	if (ImGui::Begin("##PerformanceOverlay", nullptr, current_flags))
-	{
-		// 样式设置
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 2));
-		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 1));
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 0.9f));  // 白色文字，稍微透明
-
-		// 标题栏（显示拖拽提示和控制按钮）
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 1.0f, 0.7f, 1.0f));
-		if (is_locked)
-		{
-			ImGui::Text("PERFORMANCE MONITOR");
-		}
-		else
-		{
-			ImGui::Text("PERFORMANCE MONITOR (Drag to move)");
-		}
-		ImGui::PopStyleColor();
-
-		// 控制按钮行
-		if (!is_locked)
-		{
-			if (ImGui::SmallButton("Lock"))
-			{
-				is_locked = true;
-			}
-			ImGui::SameLine();
-		}
-		else
-		{
-			if (ImGui::SmallButton("Unlock"))
-			{
-				is_locked = false;
-			}
-			ImGui::SameLine();
-		}
-
-		if (ImGui::SmallButton("Close"))
-		{
-			show_diagnostics = false;
-		}
-
-		ImGui::Separator();
-
 		// 基本性能指标
-		const ImGuiIO& io = ImGui::GetIO();
-
-		// FPS - 根据性能用不同颜色显示
-		ImVec4 fps_color = io.Framerate >= 60.0f ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) :  // 绿色
-							   io.Framerate >= 30.0f ? ImVec4(1.0f, 1.0f, 0.0f, 1.0f)
-													 :          // 黄色
-							   ImVec4(1.0f, 0.0f, 0.0f, 1.0f);  // 红色
-
-		ImGui::TextColored(fps_color, "FPS: %.1f", io.Framerate);
-		ImGui::SameLine();
-		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "(%.2fms)", 1000.0f / io.Framerate);
-
-// 内存使用（简化版）
-#ifdef _WIN32
-		PROCESS_MEMORY_COUNTERS pmc;
-		if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
+		ImGui::SeparatorText("Performance");
 		{
-			float memory_mb = pmc.WorkingSetSize / (1024.0f * 1024.0f);
-			ImVec4 memory_color = memory_mb < 100.0f ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f)
-								: memory_mb < 200.0f ? ImVec4(1.0f, 1.0f, 0.0f, 1.0f)
-													 : ImVec4(1.0f, 0.5f, 0.0f, 1.0f);
-			ImGui::TextColored(memory_color, "RAM: %.1fMB", memory_mb);
-		}
-#elif defined(__linux__)
-		std::ifstream status("/proc/self/status");
-		std::string line;
-		while (std::getline(status, line))
-		{
-			if (line.substr(0, 6) == "VmRSS:")
-			{
-				std::istringstream iss(line);
-				std::string dummy;
-				int memory_kb;
-				iss >> dummy >> memory_kb;
-				float memory_mb = memory_kb / 1024.0f;
-				ImVec4 memory_color = memory_mb < 100.0f ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f)
-									: memory_mb < 200.0f ? ImVec4(1.0f, 1.0f, 0.0f, 1.0f)
-														 : ImVec4(1.0f, 0.5f, 0.0f, 1.0f);
-				ImGui::TextColored(memory_color, "RAM: %.1fMB", memory_mb);
-				break;
-			}
-		}
-#endif
 
-		// 分隔线
-		ImGui::Separator();
+			const ImGuiIO& io = ImGui::GetIO();
+			ImGui::Text("FPS: %.1f (%.2fms)", io.Framerate, io.DeltaTime * 1000.0f);
+
+			const auto working_set_size = get_working_set_size();
+
+			if (working_set_size.has_value())
+				ImGui::Text("Memory: %.2f MB", *working_set_size / (1024.0f * 1024.0f));
+			else
+				ImGui::Text("Memory: N/A");
+		}
 
 		// 图形统计
-		ImGui::TextColored(ImVec4(0.7f, 0.7f, 1.0f, 1.0f), "GRAPH");
-		ImGui::Text("Nodes: %zu", graph.nodes.size());
-		ImGui::Text("Links: %zu", graph.links.size());
-
-		// 选中状态
-		const int selected_nodes = ImNodes::NumSelectedNodes();
-		const int selected_links = ImNodes::NumSelectedLinks();
-		if (selected_nodes > 0 || selected_links > 0)
+		ImGui::SeparatorText("Graph");
 		{
-			ImGui::TextColored(
-				ImVec4(1.0f, 1.0f, 0.0f, 1.0f),
-				"Selected: %dN %dL",
-				selected_nodes,
-				selected_links
-			);
+			ImGui::Text("Nodes: %zu", graph.nodes.size());
+			ImGui::Text("Links: %zu", graph.links.size());
+
+			// 选中状态
+			const int selected_nodes = ImNodes::NumSelectedNodes();
+			const int selected_links = ImNodes::NumSelectedLinks();
+			if (selected_nodes > 0 || selected_links > 0)
+				ImGui::Text("Selected: %dN %dL", selected_nodes, selected_links);
 		}
 
 		// 编辑器状态
-		ImGui::Separator();
-		ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.7f, 1.0f), "STATE");
+		ImGui::SeparatorText("Editor State");
+		{
+			std::string state_text = get_current_state_text(state);
+			ImGui::Text("%s", state_text.c_str());
 
-		// 状态用不同颜色显示
-		std::string state_text = get_current_state_text(state);
-		ImVec4 state_color = state == State::Editing    ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f)
-						   : state == State::Previewing ? ImVec4(0.0f, 0.8f, 1.0f, 1.0f)
-														: ImVec4(1.0f, 1.0f, 0.0f, 1.0f);
-		ImGui::TextColored(state_color, "%s", state_text.c_str());
-
-		// 撤销/重做状态
-		ImGui::Text("Undo: %zu | Redo: %zu", undo_stack.size(), redo_stack.size());
+			// 撤销/重做状态
+			ImGui::Text("Undo: %zu | Redo: %zu", undo_stack.size(), redo_stack.size());
+		}
 
 		// 如果在预览状态，显示处理器统计
 		if (state == State::Previewing && runner)
 		{
-			ImGui::Separator();
-			ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "AUDIO");
+			ImGui::SeparatorText("Audio");
 
 			auto& processor_resources = runner->get_processor_resources();
 			auto [running_count, finished_count, error_count] = count_processor_states(processor_resources);
 
-			if (error_count > 0)
-			{
-				ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Errors: %zu", error_count);
-			}
-			if (running_count > 0)
-			{
-				ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "Running: %zu", running_count);
-			}
-			if (finished_count > 0)
-			{
-				ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Finished: %zu", finished_count);
-			}
+			ImGui::Text(
+				"%d Running | %d Finished | %d Errors",
+				(int)running_count,
+				(int)finished_count,
+				(int)error_count
+			);
 
 			// 显示音频链路状态（简化版）
 			auto& link_products = runner->get_link_products();
 			if (!link_products.empty())
 			{
-				size_t audio_links = 0;
 				for (const auto& [id, link] : link_products)
 				{
 					try
 					{
 						const auto& product = dynamic_cast<const processor::Audio_stream&>(*link);
-						audio_links++;
-						float fill_ratio = (float)product.buffered_count() / processor::max_queue_size;
+						const float fill_ratio = (float)product.buffered_count() / processor::max_queue_size;
 
-						// 简化的缓冲区状态显示
-						ImVec4 buffer_color = fill_ratio > 0.8f ? ImVec4(1, 0, 0, 1)
-											: fill_ratio > 0.6f ? ImVec4(1, 1, 0, 1)
-																: ImVec4(0, 1, 0, 1);
+						// < 60%: 红色
+						// 60% - 80%: 黄色
+						// > 80%: 绿色
+						const ImVec4 buffer_color
+							= ImVec4(fill_ratio < 0.8 ? 1 : 0, fill_ratio > 0.6 ? 1 : 0, 0, 1);
 
 						ImGui::TextColored(buffer_color, "L%d: %.0f%%", id, fill_ratio * 100.0f);
-						if (audio_links % 2 == 1 && audio_links < link_products.size()) ImGui::SameLine();
 					}
 					catch (const std::bad_cast&)
 					{
-						// 忽略非音频链路
+						{
+						}
 					}
 				}
 			}
 		}
-
-		// 显示窗口位置信息（仅在解锁状态）
-		if (!is_locked)
-		{
-			ImGui::Separator();
-			ImVec2 window_pos = ImGui::GetWindowPos();
-			ImGui::TextColored(
-				ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
-				"Pos: (%.0f, %.0f)",
-				window_pos.x,
-				window_pos.y
-			);
-		}
-
-		ImGui::PopStyleColor();
-		ImGui::PopStyleVar(2);
 	}
 	ImGui::End();
-
-	// 快捷键切换锁定状态（Ctrl+Shift+P）
-	const ImGuiIO& io = ImGui::GetIO();
-	if (io.KeyCtrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_P))
-	{
-		is_locked = !is_locked;
-
-		add_info_popup_window(
-			"Performance Monitor",
-			is_locked ? "Performance monitor locked in place."
-					  : "Performance monitor unlocked. You can now drag to move it.",
-			""
-		);
-	}
 }
 
 // =============================================================================
@@ -1912,26 +1748,63 @@ void App::handle_node_actions()
 void App::handle_keyboard_shortcuts()
 {
 	// Ctrl+C 复制
-	if (ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_C)) copy_selected_nodes();
+	if (ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_C) && state == State::Editing)
+		copy_selected_nodes();
 
 	// Ctrl+V 粘贴
-	if (ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_V)) paste_nodes();
+	if (ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_V) && state == State::Editing) paste_nodes();
 
 	// Ctrl+Z 撤销
-	if (ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_Z)) undo();
+	if (ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_Z) && state == State::Editing) undo();
 
 	// Ctrl+Y 或 Ctrl+Shift+Z 重做
-	if (ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_Y)
-		|| ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_ModShift | ImGuiKey_Z))
+	if ((ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_Y)
+		 || ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_ModShift | ImGuiKey_Z))
+		&& state == State::Editing)
 		redo();
 
-	if (ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_S))
+	// Ctrl+A 全选
+	if (ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_A) && state == State::Editing)
 	{
-		std::println("Ctrl+S pressed, saving project");
-		save_project();
+		ImNodes::ClearNodeSelection();
+		ImNodes::ClearLinkSelection();
+		for (const auto& [id, _] : graph.nodes) ImNodes::SelectNode(id);
+		for (const auto& [id, _] : graph.links) ImNodes::SelectLink(id);
 	}
 
-	if (ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+	// Ctrl-S 保存
+	if (ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_S) && state == State::Editing) save_project();
+
+	// Ctrl-O 打开项目
+	if (ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_O) && state == State::Editing) open_project();
+
+	// Ctrl-N 新建项目
+	if (ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_N) && state == State::Editing)
+		new_project_async();
+
+	// Ctrl-Q 退出
+	if (ImGui::IsKeyChordPressed(ImGuiKey_ModCtrl | ImGuiKey_Q) && state == State::Editing)
+	{
+		if (graph.modified)
+			add_exit_confirm_window();
+		else
+		{
+			SDL_Event quit_event;
+			quit_event.type = SDL_QUIT;
+			SDL_PushEvent(&quit_event);
+		}
+	}
+
+	// Esc 键取消选中节点和连线
+	if (ImGui::IsKeyChordPressed(ImGuiKey_Escape) && state == State::Editing
+		&& ImNodes::NumSelectedLinks() + ImNodes::NumSelectedNodes() > 0)
+	{
+		ImNodes::ClearNodeSelection();
+		ImNodes::ClearLinkSelection();
+	}
+
+	// Delete 删除选中节点和连线
+	if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && state == State::Editing)
 	{
 		save_undo_state();
 		remove_selected_nodes();

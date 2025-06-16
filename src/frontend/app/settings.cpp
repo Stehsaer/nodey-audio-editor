@@ -1,4 +1,4 @@
-#include "frontend/settings.hpp"
+#include "frontend/app/settings.hpp"
 #include "config.hpp"
 #include "imnodes.h"
 #include "utility/dialog-utility.hpp"
@@ -194,9 +194,9 @@ bool Settings_window::operator()(bool close_button_pressed)
 	return false;
 }
 
-Popup_modal_manager::Window Settings_window::create(App_settings& settings)
+Popup_manager::Window Settings_window::create(App_settings& settings)
 {
-	return Popup_modal_manager::Window{
+	return Popup_manager::Window{
 		.title = "Settings",
 		.flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize,
 		.has_close_button = false,

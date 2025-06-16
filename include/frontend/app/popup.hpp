@@ -7,7 +7,7 @@
 #include <queue>
 
 // 弹窗管理器
-class Popup_modal_manager
+class Popup_manager
 {
   public:
 
