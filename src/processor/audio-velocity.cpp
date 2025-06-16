@@ -1,3 +1,7 @@
+#ifdef _WIN32
+#define NOMINMAX
+#endif
+
 #include "processor/audio-velocity.hpp"
 #include "frontend/imgui-utility.hpp"
 
