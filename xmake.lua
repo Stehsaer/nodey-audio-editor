@@ -22,13 +22,9 @@ target("nodey_audio")
 		"jsoncpp", 
 		"ffmpeg", 
 		"boost", 
-<<<<<<< HEAD
-		"fftw"
-=======
-		"nativefiledialog",
 		"fftw",
+		"nativefiledialog",
 		"soundtouch"
->>>>>>> 965da758f8d5cd382d6eec9393bb9d1fabf12b0c
 	)
 	
 	add_files("src/**.cpp")
@@ -39,6 +35,7 @@ target("nodey_audio")
 	-- 修复Windows UTF-8
 	if is_plat("windows") then
 		add_cxflags("/utf-8")
+		add_defines("NOMINMAX")
 	end
 target_end()
 
