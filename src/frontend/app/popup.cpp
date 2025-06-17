@@ -1,9 +1,9 @@
-#include "frontend/popup.hpp"
+#include "frontend/app/popup.hpp"
 
 #include <format>
 #include <ranges>
 
-Popup_modal_manager::Internal_window::Internal_window(Window&& window) :
+Popup_manager::Internal_window::Internal_window(Window&& window) :
 	Window(std::move(window)),
 	opened(false),
 	close_requested(false),
@@ -12,7 +12,7 @@ Popup_modal_manager::Internal_window::Internal_window(Window&& window) :
 	title = std::format("{}###{:p}", title, (const void*)this);
 }
 
-void Popup_modal_manager::draw()
+void Popup_manager::draw()
 {
 	while (!add_window_queue.empty())
 	{
@@ -53,7 +53,8 @@ void Popup_modal_manager::draw()
 	std::erase_if(windows, [](const auto& window) { return window->close_requested; });
 }
 
-void Popup_modal_manager::open_window(Window window)
+void Popup_manager::open_window(Window window)
 {
+	std::lock_guard lock(add_window_mutex);
 	add_window_queue.emplace(std::make_unique<Internal_window>(std::move(window)));
 }
