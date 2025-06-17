@@ -23,7 +23,6 @@ target("nodey_audio")
 		"ffmpeg", 
 		"boost", 
 		"fftw",
-		"nativefiledialog",
 		"soundtouch"
 	)
 	
