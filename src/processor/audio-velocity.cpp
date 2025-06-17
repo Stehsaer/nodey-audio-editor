@@ -341,6 +341,16 @@ namespace processor
 					{
 						soundtouch = std::make_unique<soundtouch::SoundTouch>();
 
+						if (frame->sample_rate < 8000 || frame->sample_rate > 48000)
+							throw infra::Processor::Runtime_error(
+								"Unsupported sample rate",
+								std::format(
+									"{} requires a sample rate between 8000 and 48000 Hz.",
+									frame->sample_rate
+								),
+								std::format("Sample rate: {}", frame->sample_rate)
+							);
+
 						soundtouch->setSampleRate(frame->sample_rate);
 						soundtouch->setChannels(frame->ch_layout.nb_channels);
 

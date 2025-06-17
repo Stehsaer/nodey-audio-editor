@@ -3,9 +3,11 @@
 #include "frontend/imgui-utility.hpp"
 #include "utility/dialog-utility.hpp"
 #include "utility/free-utility.hpp"
+#include "utility/sw-resample.hpp"
 
 #include <SDL_events.h>
 #include <boost/fiber/operations.hpp>
+#include <cassert>
 #include <print>
 
 extern "C"
@@ -47,7 +49,9 @@ namespace processor
 		std::any& user_data
 	) const
 	{
+#ifndef _DEBUG
 		av_log_set_level(AV_LOG_QUIET);  // 禁用 FFmpeg 的日志输出
+#endif
 
 		const auto output_item = get_output_item<Audio_stream>(output, "output");
 
@@ -283,34 +287,10 @@ namespace processor
 		struct Stream_info
 		{
 			int sample_rate, element_count, channels;
-			SwrContext* resampler;
-
-			Stream_info(int sample_rate, int element_count, int channels, SwrContext* resampler) :
-				sample_rate(sample_rate),
-				element_count(element_count),
-				channels(channels),
-				resampler(resampler)
-			{
-				if (resampler == nullptr)
-					throw Runtime_error(
-						"Resampler initialization failed",
-						"Cannot create audio resampler",
-						"Resampler pointer is null"
-					);
-			}
-
-			Stream_info(const Stream_info&) = delete;
-			Stream_info(Stream_info&&) = delete;
-			Stream_info& operator=(const Stream_info&) = delete;
-			Stream_info& operator=(Stream_info&&) = delete;
-
-			~Stream_info()
-			{
-				if (resampler != nullptr) swr_free(&resampler);
-			}
+			std::unique_ptr<Audio_resampler> resampler;
 		};
 
-		std::optional<std::unique_ptr<Stream_info>> stream_info;
+		std::optional<Stream_info> stream_info;
 
 		auto frontend_context = std::any_cast<Process_context>(user_data);
 		SDL_PauseAudioDevice(frontend_context.audio_device, 0);
@@ -355,56 +335,59 @@ namespace processor
 			// 假定流的采样率和通道数不变
 			if (!stream_info.has_value())  // 此前没有数据
 			{
-				// 初始化软件重采样器
-				SwrContext* resampler = swr_alloc();
-				if (!resampler) throw std::bad_alloc();
-
 				const AVChannelLayout input_layout = frame_channels == 2
 													   ? AVChannelLayout(AV_CHANNEL_LAYOUT_STEREO)
 													   : AVChannelLayout(AV_CHANNEL_LAYOUT_MONO);
 
-				av_opt_set_chlayout(resampler, "in_chlayout", &input_layout, 0);
-				av_opt_set_int(resampler, "in_sample_rate", frame_sample_rate, 0);
-				av_opt_set_sample_fmt(resampler, "in_sample_fmt", (AVSampleFormat)frame.format, 0);
+				const Audio_resampler::Format input_format{
+					.format = (AVSampleFormat)frame.format,
+					.sample_rate = frame_sample_rate,
+					.channel_layout = input_layout
+				};
 
-				av_opt_set_chlayout(resampler, "out_chlayout", &config::audio::av_channel_layout, 0);
-				av_opt_set_int(resampler, "out_sample_rate", config::audio::sample_rate, 0);
-				av_opt_set_sample_fmt(resampler, "out_sample_fmt", config::audio::av_format, 0);
+				const Audio_resampler::Format output_format{
+					.format = config::audio::av_format,
+					.sample_rate = config::audio::sample_rate,
+					.channel_layout = config::audio::av_channel_layout
+				};
 
-				stream_info = std::make_unique<Stream_info>(
-					frame_sample_rate,
-					frame_sample_element_count,
-					frame_channels,
-					resampler
-				);
-
-				if (swr_init(resampler) < 0)
+				auto resampler_create = Audio_resampler::create(input_format, output_format);
+				if (!resampler_create.has_value())
 					throw Runtime_error(
-						"Failed to initialize software resampler",
-						"Cannot start the audio resampling process. Internal error may have occurred.",
-						"swr_init() returned error"
+						"Failed to create audio resampler",
+						"Cannot create audio resampler for the input audio format. Internal error may have "
+						"occurred.",
+						std::format(
+							"Input format: {}, sample rate: {}, channels: {}",
+							frame.format,
+							frame_sample_rate,
+							frame_channels
+						)
 					);
+
+				stream_info = Stream_info{
+					.sample_rate = frame_sample_rate,
+					.element_count = frame_sample_element_count,
+					.channels = frame_channels,
+					.resampler = std::move(resampler_create.value())
+				};
 			}
 			else
 			{
 				// 不匹配，抛出运行时异常
 
-				if (frame_sample_rate != stream_info.value()->sample_rate)
+				if (frame_sample_rate != stream_info->sample_rate)
 					throw Runtime_error(
 						"Sample rate changed",
 						"Audio stream sample rate is inconsistent. Internal error may have occurred.",
-						std::format(
-							"Expected {}, got {}",
-							stream_info.value()->sample_rate,
-							frame_sample_rate
-						)
+						std::format("Expected {}, got {}", stream_info->sample_rate, frame_sample_rate)
 					);
 
-				if (frame_channels != stream_info.value()->channels)
+				if (frame_channels != stream_info->channels)
 					throw Runtime_error(
 						"Channel count changed",
 						"Audio stream channel count is inconsistent. Internal error may have occurred.",
-						std::format("Expected {}, got {}", stream_info.value()->channels, frame_channels)
+						std::format("Expected {}, got {}", stream_info->channels, frame_channels)
 					);
 			}
 
@@ -419,15 +402,15 @@ namespace processor
 				= (float)frame_sample_element_count / frame_sample_rate * config::audio::sample_rate * 1.5;
 			output_buffer.resize(output_buffer_size * 2);
 
-			auto* const output_raw_pointer = reinterpret_cast<uint8_t*>(output_buffer.data());
+			const auto output_ptr_array = std::to_array({output_buffer.data()});
 
-			const auto convert_count = swr_convert(
-				stream_info.value()->resampler,
-				&output_raw_pointer,
-				output_buffer_size * sizeof(config::audio::Buffer_type),
-				frame.data,
-				frame.nb_samples
+			const auto convert_count = stream_info->resampler->resample<uint8_t, config::audio::Buffer_type>(
+				std::span<const uint8_t* const>{frame.data, frame.data + frame_channels},
+				frame_sample_element_count,
+				std::span(output_ptr_array),
+				output_buffer_size
 			);
+
 			if (convert_count < 0)
 				throw Runtime_error(
 					"Software resampler failed",
