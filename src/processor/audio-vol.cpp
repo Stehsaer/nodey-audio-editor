@@ -7,6 +7,7 @@
 #include <boost/fiber/operations.hpp>
 #include <iostream>
 #include <limits>
+#include <nfd.h>
 #include <print>
 #include <stdlib.h>
 #include <vector>
@@ -103,8 +104,8 @@ namespace processor
 
 		if (!input_item_optional.has_value())
 			throw Runtime_error(
-				"Volume adjust processor has no input",
-				"Volume adjust processor requires an audio stream input to function properly.",
+				"Audio output processor has no input",
+				"Audio output processor requires an audio stream input to function properly.",
 				"Input item 'input' not found"
 			);
 

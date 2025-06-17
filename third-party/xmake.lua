@@ -1,1 +1,1 @@
-includes("imgui-knobs", "imnodes", "portable-file-dialogs")
+includes("imgui-knobs", "imnodes")
