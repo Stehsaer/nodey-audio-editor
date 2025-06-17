@@ -64,22 +64,12 @@ class App
 		IO                   // 输入输出操作中（如保存、打开项目等）
 	};
 
-	// 节点编辑器右键菜单状态
-	enum class Node_editor_context_menu_state
-	{
-		Closed,          // 菜单关闭
-		Open_requested,  // 请求打开菜单
-		Opened           // 菜单已打开
-	};
-
 	// =============================================================================
 	// 核心状态和对象
 	// =============================================================================
 
 	// 应用程序状态（线程安全）
 	std::atomic<State> state = State::Editing;
-	std::atomic<Node_editor_context_menu_state> node_editor_context_menu_state
-		= Node_editor_context_menu_state::Closed;
 
 	// UI核心对象
 	SDL_context sdl_context;      // SDL渲染上下文
@@ -98,6 +88,10 @@ class App
 	// 复制粘贴系统
 	std::string copied_graph_json;               // 复制的图数据（JSON格式）
 	ImVec2 last_paste_position{100.0f, 100.0f};  // 上次粘贴位置
+
+	// 延迟选择
+	std::optional<infra::Id_t> delayed_selection_node, delayed_selection_link;  // 延迟选择的节点ID
+	int open_node_context_menu_tries = 0;  // 是否无条件打开节点上下文菜单
 
 	// =============================================================================
 	// UI设置和状态

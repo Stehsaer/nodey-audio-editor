@@ -20,6 +20,34 @@ void App::draw()
 {
 	draw_menubar();
 
+	if (delayed_selection_node.has_value())
+	{
+		ImNodes::ClearNodeSelection();
+		ImNodes::ClearLinkSelection();
+		ImNodes::SelectNode(*delayed_selection_node);
+		delayed_selection_node.reset();
+
+		open_node_context_menu_tries = 5;
+	}
+	else if (delayed_selection_link.has_value())
+	{
+		ImNodes::ClearNodeSelection();
+		ImNodes::ClearLinkSelection();
+		ImNodes::SelectLink(*delayed_selection_link);
+		delayed_selection_link.reset();
+
+		open_node_context_menu_tries = 5;
+	}
+
+	// 因为未知原因，需要反复尝试打开菜单，5次应该足够了
+	if (open_node_context_menu_tries > 0)
+	{
+		ImGui::OpenPopup("node-editor-context-menu");
+		open_node_context_menu_tries--;
+	}
+
+	draw_node_editor_context_menu();
+
 	const auto side_panel_width_pixel = app_settings.ui.side_panel_width * runtime_config::ui_scale;
 	const auto [display_size_x, display_size_y] = ImGui::GetIO().DisplaySize;
 	const bool show_side_panel = ImNodes::NumSelectedNodes() == 1;
@@ -891,7 +919,7 @@ void App::restore_node_positions()
 	{
 		if (node.position.x != 0.0f || node.position.y != 0.0f)
 		{
-			ImNodes::SetNodeScreenSpacePos(id, node.position);
+			ImNodes::SetNodeGridSpacePos(id, node.position);
 		}
 	}
 }
@@ -1462,11 +1490,7 @@ void App::draw_node_editor()
 {
 	ImNodes::BeginNodeEditor();
 	{
-		for (auto& [i, node] : graph.nodes)
-		{
-			draw_node(i, node);
-			node.position = ImNodes::GetNodeGridSpacePos(i);
-		}
+		for (auto& [i, node] : graph.nodes) draw_node(i, node);
 
 		for (auto [i, link] : graph.links) ImNodes::Link(i, link.from, link.to);
 
@@ -1477,67 +1501,38 @@ void App::draw_node_editor()
 				ImNodesMiniMapLocation_TopRight
 			);
 		}
-
-		if (state == State::Editing)
-		{
-			// 编辑状态下，右键唤起右键菜单
-			if (ImNodes::IsEditorHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)
-				&& node_editor_context_menu_state == Node_editor_context_menu_state::Closed)
-				node_editor_context_menu_state = Node_editor_context_menu_state::Open_requested;
-		}
-		else
-		{
-			// 非编辑状态下不允许选中
-			ImNodes::ClearNodeSelection();
-			ImNodes::ClearLinkSelection();
-		}
 	}
 	ImNodes::EndNodeEditor();
 
 	//保存节点位置
 	for (auto& [id, item] : graph.nodes)
 	{
-		item.position = ImNodes::GetNodeScreenSpacePos(id);
+		const auto new_position = ImNodes::GetNodeGridSpacePos(id);
+		item.position = new_position;
 	}
 
 	// 直接右键节点/连结选中并打开菜单
 	if (state == State::Editing && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 	{
-		infra::Id_t hovered_node;
+		infra::Id_t hovered_node, hovered_link;
 		if (ImNodes::IsNodeHovered(&hovered_node))
 		{
-			ImNodes::ClearNodeSelection();
-			ImNodes::ClearLinkSelection();
-			ImNodes::SelectNode(hovered_node);
+			delayed_selection_node = hovered_node;
 		}
-
-		infra::Id_t hovered_link;
-		if (ImNodes::IsLinkHovered(&hovered_link))
+		else if (ImNodes::IsLinkHovered(&hovered_link))
 		{
-			ImNodes::ClearNodeSelection();
-			ImNodes::ClearLinkSelection();
-			ImNodes::SelectLink(hovered_link);
+			delayed_selection_link = hovered_link;
 		}
-
-		node_editor_context_menu_state = Node_editor_context_menu_state::Open_requested;
+		else
+			open_node_context_menu_tries = 5;
 	}
 
-	// 右键菜单被关闭时，清除选中节点和连结
-	if (state == State::Editing && node_editor_context_menu_state == Node_editor_context_menu_state::Opened
-		&& !ImGui::IsPopupOpen("node-editor-context-menu", ImGuiPopupFlags_AnyPopupLevel))
+	if (state != State::Editing)
 	{
 		ImNodes::ClearNodeSelection();
 		ImNodes::ClearLinkSelection();
-		node_editor_context_menu_state = Node_editor_context_menu_state::Closed;
 	}
 
-	if (node_editor_context_menu_state == Node_editor_context_menu_state::Open_requested)
-	{
-		ImGui::OpenPopup("node-editor-context-menu");
-		node_editor_context_menu_state = Node_editor_context_menu_state::Opened;
-	}
-
-	draw_node_editor_context_menu();
 	handle_node_actions();
 }
 
@@ -1607,7 +1602,7 @@ void App::draw_add_node_menu()
 // 绘制节点编辑器右键菜单
 void App::draw_node_editor_context_menu()
 {
-	if (ImGui::BeginPopup("node-editor-context-menu"))
+	if (ImGui::BeginPopup("node-editor-context-menu", ImGuiWindowFlags_Popup))
 	{
 		// 删除按钮
 		if (const auto selected_nodes = ImNodes::NumSelectedNodes(),
@@ -1635,11 +1630,7 @@ void App::draw_node_editor_context_menu()
 					= std::format("{} Link{}", selected_links, *&"s" + (selected_links == 1));
 			}
 
-			if (ImGui::MenuItem("Delete", number_description_text.c_str()))
-			{
-				save_undo_state();
-				remove_selected_nodes();
-			}
+			if (ImGui::MenuItem("Delete", number_description_text.c_str())) remove_selected_nodes();
 		}
 
 		// 复制按钮
@@ -1680,7 +1671,8 @@ void App::draw_node_editor_context_menu()
 // 删除选中节点和连线
 void App::remove_selected_nodes()
 {
-	//save_undo_state();
+	save_undo_state();
+
 	const auto selected_node_count = ImNodes::NumSelectedNodes();
 	if (selected_node_count != 0)
 	{
@@ -1702,6 +1694,8 @@ void App::remove_selected_nodes()
 						  | std::views::filter([this](auto i) { return i >= 0 && graph.links.contains(i); }))
 			graph.remove_link(i);
 	}
+
+	ImNodes::ClearNodeSelection();
 }
 
 // 处理节点编辑器的操作
@@ -1709,24 +1703,6 @@ void App::handle_node_actions()
 {
 	// 只能在编辑模式下改变图
 	if (state != State::Editing) return;
-
-	// 检测节点点击
-	infra::Id_t clicked_node = -1;
-	if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && state == State::Editing)
-	{
-		if (ImNodes::IsNodeHovered(&clicked_node))
-		{
-			// 选中这个节点
-			ImNodes::ClearNodeSelection();
-			ImNodes::SelectNode(clicked_node);
-		}
-		else if (ImNodes::IsEditorHovered())
-		{
-			// 清除选择
-			ImNodes::ClearNodeSelection();
-			ImNodes::ClearLinkSelection();
-		}
-	}
 
 	int start, end;
 	bool from_snap;
@@ -1804,12 +1780,7 @@ void App::handle_keyboard_shortcuts()
 	}
 
 	// Delete 删除选中节点和连线
-	if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && state == State::Editing)
-	{
-		save_undo_state();
-		remove_selected_nodes();
-		ImNodes::ClearNodeSelection();
-	}
+	if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && state == State::Editing) remove_selected_nodes();
 }
 
 // 主程序状态轮询
