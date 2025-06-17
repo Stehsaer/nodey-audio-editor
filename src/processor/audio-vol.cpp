@@ -7,7 +7,6 @@
 #include <boost/fiber/operations.hpp>
 #include <iostream>
 #include <limits>
-#include <nfd.h>
 #include <print>
 #include <stdlib.h>
 #include <vector>

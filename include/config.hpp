@@ -32,7 +32,10 @@ namespace config
 	namespace appearance
 	{
 		inline static constexpr auto window_title = "Nodey Audio Editor";              // 标题
-		inline static constexpr auto left_panel_width = 300;                           // 左面板宽度
+		inline static constexpr auto side_panel_width = 300;                           // 左面板宽度
+		inline static constexpr auto toolbar_internal_width = 40;                      // 工具栏内部宽度
+		inline static constexpr auto toolbar_margin = 30;                              // 工具栏边距
+		inline static constexpr auto node_editor_minimap_fraction = 0.15;              // 节点编辑器小地图占比
 		inline static constexpr auto min_window_width = 800, min_window_height = 600;  // 最小窗口大小
 	};
 
