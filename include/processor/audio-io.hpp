@@ -18,7 +18,9 @@ namespace processor
 	// - 负责读取与解码音频文件
 	class Audio_input : public infra::Processor
 	{
-		std::string file_path;
+		size_t file_count = 0;
+		std::optional<size_t> remove_index;
+		std::vector<std::string> file_paths;
 
 	  public:
 

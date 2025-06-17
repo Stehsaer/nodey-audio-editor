@@ -1,6 +1,7 @@
 #include "processor/audio-io.hpp"
 #include "config.hpp"
 #include "frontend/imgui-utility.hpp"
+#include "frontend/nerdfont.hpp"
 #include "utility/dialog-utility.hpp"
 #include "utility/free-utility.hpp"
 #include "utility/sw-resample.hpp"
@@ -8,6 +9,7 @@
 #include <SDL_events.h>
 #include <boost/fiber/operations.hpp>
 #include <cassert>
+#include <filesystem>
 #include <print>
 
 extern "C"
@@ -23,186 +25,301 @@ namespace processor
 		return infra::Processor::Info{
 			.identifier = "audio_input",
 			.display_name = "Audio Input",
-			.singleton = false,
+			.singleton = true,
 			.generate = std::make_unique<Audio_input>
 		};
 	}
 
 	std::vector<infra::Processor::Pin_attribute> Audio_input::get_pin_attributes() const
 	{
-		return {
-			{.identifier = "output",
-			 .display_name = "Output",
-			 .type = typeid(Audio_stream),
-			 .is_input = false,
-			 .generate_func = []
-			 {
-				 return std::make_shared<Audio_stream>();
-			 }},
-		};
+		std::vector<infra::Processor::Pin_attribute> output;
+		output.reserve(file_paths.size());
+
+		for (auto i : std::views::iota(0zu, file_paths.size()))
+		{
+			output.push_back(
+				{.identifier = std::format("output_{}", i),
+				 .display_name = std::format("Output {}", i + 1),
+				 .type = typeid(Audio_stream),
+				 .is_input = false,
+				 .generate_func =
+					 []
+				 {
+					 return std::make_shared<Audio_stream>();
+				 }}
+			);
+		}
+
+		return output;
 	}
 
 	void Audio_input::process_payload(
 		const std::map<std::string, std::shared_ptr<infra::Processor::Product>>& input [[maybe_unused]],
 		const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 		const std::atomic<bool>& stop_token,
-		std::any& user_data
+		std::any& user_data [[maybe_unused]]
 	) const
 	{
 #ifndef _DEBUG
 		av_log_set_level(AV_LOG_QUIET);  // 禁用 FFmpeg 的日志输出
 #endif
 
-		const auto output_item = get_output_item<Audio_stream>(output, "output");
-
 		/* 解码上下文 */
 
-		AVFormatContext* format_context = nullptr;
-		int audio_index;
+		auto file_fiber = [](const std::set<std::shared_ptr<Audio_stream>> output_item,
+							 const std::string& file_path,
+							 const std::atomic<bool>& main_stop_token,
+							 std::atomic<bool>& error_stop_token)
 		{
-			const int open_ret = avformat_open_input(&format_context, file_path.c_str(), nullptr, nullptr);
-			if (open_ret < 0)
-				throw Runtime_error(
-					"Failed to open input file",
-					"The program fails to open the input file, check if the path is valid",
-					std::format("File path: {}", file_path)
-				);
-
-			const int find_ret = avformat_find_stream_info(format_context, nullptr);
-			if (find_ret < 0)
-				throw Runtime_error(
-					"Failed to find stream info",
-					"The program cannot analyze the audio file structure, check the audio file",
-					std::format("File path: {}", file_path)
-				);
-
-			audio_index = av_find_best_stream(format_context, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
-			if (audio_index < 0)
-				throw Runtime_error(
-					"No audio stream found",
-					"The file does not contain any audio streams, check the audio file",
-					std::format("File path: {}", file_path)
-				);
-		}
-		const Free_utility free_format_context(std::bind(avformat_close_input, &format_context));
-
-		/* 找解码器 */
-
-		AVStream* const audio_stream = format_context->streams[audio_index];
-		AVCodecParameters* const codec_params = audio_stream->codecpar;
-		const AVCodec* codec = avcodec_find_decoder(codec_params->codec_id);
-		if (!codec)
-			throw Runtime_error(
-				"No decoder found",
-				"The audio codec in the file is not supported",
-				std::format("File path: {}", file_path)
-			);
-
-		/* 创建上下文 */
-
-		AVCodecContext* codec_context = avcodec_alloc_context3(codec);
-		if (!codec_context) throw std::bad_alloc();
-		const Free_utility free_codec_context(std::bind(avcodec_free_context, &codec_context));
-
-		if (avcodec_parameters_to_context(codec_context, codec_params) < 0)
-			throw Runtime_error(
-				"Failed to copy codec parameters",
-				"Cannot initialize the audio decoder with the file parameters, check the audio file",
-				std::format("File path: {}", file_path)
-			);
-
-		if (avcodec_open2(codec_context, codec, nullptr) < 0)
-			throw Runtime_error(
-				"Failed to open codec",
-				"Cannot start the audio decoder",
-				std::format("File path: {}", file_path)
-			);
-
-		AVPacket* packet = av_packet_alloc();
-		if (packet == nullptr) throw std::bad_alloc();
-		const Free_utility free_packet(std::bind(av_packet_free, &packet));
-
-		/* 接受数据帧 */
-
-		auto push_frame = [&stop_token, &output_item](const std::shared_ptr<Audio_frame>& frame)
-		{
-			for (auto& channel : output_item)
+			AVFormatContext* format_context = nullptr;
+			int audio_index;
 			{
-				if (stop_token) return;
+				const int open_ret
+					= avformat_open_input(&format_context, file_path.c_str(), nullptr, nullptr);
+				if (open_ret < 0)
+					throw Runtime_error(
+						"Failed to open input file",
+						"The program fails to open the input file, check if the path is valid",
 
-				while (channel->try_push(frame) != boost::fibers::channel_op_status::success)
-				{
-					if (stop_token) return;
-					boost::this_fiber::yield();
-				}
+						std::format("File path: {}", file_path)
+					);
+
+				const int find_ret = avformat_find_stream_info(format_context, nullptr);
+				if (find_ret < 0)
+					throw Runtime_error(
+						"Failed to find stream info",
+						"The program cannot analyze the audio file structure, check the audio file",
+						std::format("File path: {}", file_path)
+					);
+
+				audio_index = av_find_best_stream(format_context, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
+				if (audio_index < 0)
+					throw Runtime_error(
+						"No audio stream found",
+						"The file does not contain any audio streams, check the audio file",
+						std::format("File path: {}", file_path)
+					);
 			}
-		};
+			const Free_utility free_format_context(std::bind(avformat_close_input, &format_context));
 
-		while (!stop_token)
-		{
-			const std::shared_ptr<Audio_frame> new_frame = std::make_shared<Audio_frame>();
+			/* 找解码器 */
 
-			do {
-				const int read_frame_result = av_read_frame(format_context, packet);
-				if (read_frame_result < 0)
+			AVStream* const audio_stream = format_context->streams[audio_index];
+			AVCodecParameters* const codec_params = audio_stream->codecpar;
+			const AVCodec* codec = avcodec_find_decoder(codec_params->codec_id);
+			if (!codec)
+				throw Runtime_error(
+					"No decoder found",
+					"The audio codec in the file is not supported",
+					std::format("File path: {}", file_path)
+				);
+
+			/* 创建上下文 */
+
+			AVCodecContext* codec_context = avcodec_alloc_context3(codec);
+			if (!codec_context) throw std::bad_alloc();
+			const Free_utility free_codec_context(std::bind(avcodec_free_context, &codec_context));
+
+			if (avcodec_parameters_to_context(codec_context, codec_params) < 0)
+				throw Runtime_error(
+					"Failed to copy codec parameters",
+					"Cannot initialize the audio decoder with the file parameters, check the audio file",
+					std::format("File path: {}", file_path)
+				);
+
+			if (avcodec_open2(codec_context, codec, nullptr) < 0)
+				throw Runtime_error(
+					"Failed to open codec",
+					"Cannot start the audio decoder",
+					std::format("File path: {}", file_path)
+				);
+
+			AVPacket* packet = av_packet_alloc();
+			if (packet == nullptr) throw std::bad_alloc();
+			const Free_utility free_packet(std::bind(av_packet_free, &packet));
+
+			/* 接受数据帧 */
+
+			auto push_frame =
+				[&main_stop_token, &error_stop_token, &output_item](const std::shared_ptr<Audio_frame>& frame)
+			{
+				for (auto& channel : output_item)
 				{
-					if (read_frame_result == AVERROR_EOF)
-						break;
+					if (main_stop_token || error_stop_token) return;
+
+					while (channel->try_push(frame) != boost::fibers::channel_op_status::success)
+					{
+						if (main_stop_token || error_stop_token) return;
+						boost::this_fiber::yield();
+					}
+				}
+
+				boost::this_fiber::yield();
+			};
+
+			while (!main_stop_token && !error_stop_token)
+			{
+				const std::shared_ptr<Audio_frame> new_frame = std::make_shared<Audio_frame>();
+
+				do {
+					const int read_frame_result = av_read_frame(format_context, packet);
+					if (read_frame_result < 0)
+					{
+						if (read_frame_result == AVERROR_EOF)
+							break;
+						else
+							throw Runtime_error(
+								"Error reading frame",
+								"Failed to read audio data from the file. Internal error may have occurred.",
+								std::format("File path: {}", file_path)
+							);
+					}
+				} while (packet->stream_index != audio_index);  // 跳过非音频流
+
+				const int send_packet_result = avcodec_send_packet(codec_context, packet);
+				if (send_packet_result < 0)
+				{
+					if (send_packet_result == AVERROR(EAGAIN))
+						continue;
 					else
 						throw Runtime_error(
-							"Error reading frame",
-							"Failed to read audio data from the file. Internal error may have occurred.",
+							"Error sending packet to codec",
+							"Failed to send audio packet to the decoder. Internal error may have occurred.",
 							std::format("File path: {}", file_path)
 						);
 				}
-			} while (packet->stream_index != audio_index);  // 跳过非音频流
 
-			const int send_packet_result = avcodec_send_packet(codec_context, packet);
-			if (send_packet_result < 0)
-			{
-				if (send_packet_result == AVERROR(EAGAIN))
-					continue;
-				else
-					throw Runtime_error(
-						"Error sending packet to codec",
-						"Failed to send audio packet to the decoder. Internal error may have occurred.",
-						std::format("File path: {}", file_path)
-					);
+				av_packet_unref(packet);
+
+				const int receive_frame_result = avcodec_receive_frame(codec_context, new_frame->data());
+				if (receive_frame_result < 0)
+				{
+					if (receive_frame_result == AVERROR(EAGAIN))
+						continue;
+					else if (receive_frame_result == AVERROR_EOF)
+						break;
+					else
+						throw Runtime_error(
+							"Error receiving frame from codec",
+							"Failed to decode audio frame. Internal error may have occurred.",
+							std::format("File path: {}", file_path)
+						);
+				}
+
+				push_frame(new_frame);
 			}
 
-			av_packet_unref(packet);
+			for (auto& channel : output_item) channel->set_eof();
+		};
 
-			const int receive_frame_result = avcodec_receive_frame(codec_context, new_frame->data());
-			if (receive_frame_result < 0)
-			{
-				if (receive_frame_result == AVERROR(EAGAIN))
-					continue;
-				else if (receive_frame_result == AVERROR_EOF)
-					break;
-				else
-					throw Runtime_error(
-						"Error receiving frame from codec",
-						"Failed to decode audio frame. Internal error may have occurred.",
-						std::format("File path: {}", file_path)
-					);
-			}
+		std::atomic<bool> error_stop_token = false;
+		std::any error_data;
 
-			push_frame(new_frame);
+		std::vector<boost::fibers::fiber> fibers;
+		fibers.reserve(file_paths.size());
+
+		for (const auto& [idx, file_path] : std::views::enumerate(file_paths))
+			if (!std::filesystem::exists(file_path) || !std::filesystem::is_regular_file(file_path))
+				throw Runtime_error(
+					std::format("Invalid file path in slot {}", idx + 1),
+					"The specified audio file does not exist or is not a regular file.",
+					std::format("File path: {}", file_path)
+				);
+
+		for (const auto& [idx, file_path] : std::views::enumerate(file_paths))
+		{
+			const auto output_item = get_output_item<Audio_stream>(output, std::format("output_{}", idx));
+
+			fibers.emplace_back(
+				boost::fibers::launch::dispatch,
+				[&file_fiber, &error_data, file_path, output_item, &stop_token, &error_stop_token]
+				{
+					try
+					{
+						file_fiber(output_item, file_path, stop_token, error_stop_token);
+					}
+					catch (const Runtime_error& e)
+					{
+						error_stop_token = true;
+						error_data = e;
+					}
+					catch (const std::exception& e)
+					{
+						error_stop_token = true;
+						error_data = Runtime_error(
+							"Unexpected error in audio input processing",
+							"An unexpected error occurred while processing the audio input.",
+							std::format("Error: {}", e.what())
+						);
+					}
+					catch (...)
+					{
+						error_stop_token = true;
+						error_data = Runtime_error(
+							"Unknown error in audio input processing",
+							"An unknown error occurred while processing the audio input.",
+							"Unknown error"
+						);
+					}
+				}
+			);
 		}
 
-		for (auto& channel : output_item) channel->set_eof();
+		for (auto& fiber : fibers)
+			if (fiber.joinable()) fiber.join();
+
+		if (error_data.has_value())
+		{
+			if (error_data.type() == typeid(Runtime_error))
+			{
+				const auto& error = std::any_cast<const Runtime_error&>(error_data);
+				throw Runtime_error(error.message, error.explanation, error.detail);
+			}
+			else
+			{
+				throw Runtime_error(
+					"Unknown error in audio input processing",
+					"An unknown type of error occurred while processing the audio input.",
+					std::format("Error: {}", error_data.type().name())
+				);
+			}
+		}
 	}
 
 	Json::Value Audio_input::serialize() const
 	{
+		Json::Value file_path(Json::ValueType::arrayValue);
+		for (const auto& path : file_paths) file_path.append(path);
+
 		Json::Value value(Json::ValueType::objectValue);
 		value["file_path"] = file_path;
+
 		return value;
 	}
 
 	void Audio_input::deserialize(const Json::Value& value)
 	{
-		file_path = value["file_path"].asString();
+		if (!value.isObject() || !value.isMember("file_path") || !value["file_path"].isArray())
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_input failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: file_path"
+			);
+
+		file_paths.clear();
+		for (const auto& path : value["file_path"])
+		{
+			if (!path.isString())
+				throw Runtime_error(
+					"Failed to deserialize JSON file",
+					"Audio_input failed to serialize the JSON input because of missing or invalid fields.",
+					"Wrong field: file_path.path"
+				);
+			file_paths.push_back(path.asString());
+		}
+
+		file_count = file_paths.size();
+		remove_index.reset();
 	}
 
 	void Audio_input::draw_title()
@@ -212,28 +329,64 @@ namespace processor
 
 	bool Audio_input::draw_content(bool readonly)
 	{
+		bool modified = false;
+
+		if (remove_index.has_value())
+		{
+			file_paths.erase(file_paths.begin() + remove_index.value());
+			remove_index.reset();
+			file_count--;
+			modified = true;
+		}
+
+		if (file_count > file_paths.size())
+		{
+			file_paths.resize(file_count);
+			modified = true;
+		}
+
+		if (file_count < file_paths.size())
+			THROW_LOGIC_ERROR("File count of ({}) smaller than file paths size ({})", file_count, file_paths);
+
 		ImGui::SetNextItemWidth(200);
 		ImGui::BeginGroup();
 		ImGui::BeginDisabled(readonly);
 		{
-			// 选择文件
-			if (ImGui::Button("Choose File"))
+			for (size_t i = 0; i < file_count; i++)
 			{
-				const auto open_file_result = open_file_dialog(
-					"Select Audio File",
-					{"Audio Files (*.wav, *.mp3, *.flac, *.ogg)",
-					 "*.wav *.mp3 *.flac *.ogg",
-					 "All Files",
-					 "*.*"}
-				);
+				ImGui::Text("Slot %zu", i + 1);
+				ImGui::SameLine();
+				if (ImGui::Button(std::format("Browse " ICON_EXT_LINK "##browse_button_{}", i).c_str()))
+				{
+					const auto& current_path = file_paths[i];
+					std::string default_path = ".";
 
-				if (open_file_result.has_value()) file_path = open_file_result.value();
+					if (std::filesystem::exists(current_path)
+						&& std::filesystem::is_regular_file(current_path))
+						default_path = std::filesystem::path(current_path).parent_path().string();
+
+					const auto open_file_result = open_file_dialog(
+						"Select Audio File",
+						{"Audio Files (*.wav, *.mp3, *.flac, *.ogg)",
+						 "*.wav *.mp3 *.flac *.ogg",
+						 "All Files",
+						 "*.*"},
+						default_path
+					);
+
+					if (open_file_result.has_value()) file_paths[i] = open_file_result.value();
+				}
+
+				ImGui::SameLine();
+				if (ImGui::Button(std::format(ICON_TRASH "##delete_button_{}", i).c_str())) remove_index = i;
 			}
+
+			if (ImGui::Button(ICON_FILE_ADD)) file_count++;
 		}
 		ImGui::EndDisabled();
 		ImGui::EndGroup();
 
-		return false;
+		return modified;
 	}
 
 	infra::Processor::Info Audio_output::get_processor_info()
