@@ -166,7 +166,7 @@ namespace processor
 			out_frame->sample_rate = 48000;
 			out_frame->format = AV_SAMPLE_FMT_FLTP;
 
-			time_seconds += frame_l->nb_samples / double(frame_l->sample_rate);
+			time_seconds += out_frame->nb_samples / double(out_frame->sample_rate);
 
 			out_frame->pts = time_seconds * 1000000;
 			out_frame->time_base = {.num = 1, .den = 1000000};
@@ -179,7 +179,7 @@ namespace processor
 				resampler_l = swr_alloc();
 				resampler_r = swr_alloc();
 
-				const AVChannelLayout dst_layout = AV_CHANNEL_LAYOUT_MONO;
+				const AVChannelLayout dst_layout = AV_CHANNEL_LAYOUT_STEREO;
 
 				const AVChannelLayout input_layout_r = frame_r->ch_layout.nb_channels == 2
 														 ? AVChannelLayout(AV_CHANNEL_LAYOUT_STEREO)
@@ -230,7 +230,7 @@ namespace processor
 			av_samples_alloc_array_and_samples(
 				&data1,
 				&linesize_l,
-				1,
+				2,
 				out_frame->nb_samples,
 				static_cast<AVSampleFormat>(out_frame->format),
 				0
@@ -257,7 +257,7 @@ namespace processor
 			av_samples_alloc_array_and_samples(
 				&data2,
 				&linesize_r,
-				1,
+				2,
 				out_frame->nb_samples,
 				static_cast<AVSampleFormat>(out_frame->format),
 				0
@@ -280,8 +280,10 @@ namespace processor
 					"swr_convert() returned error"
 				);
 
-			const auto* float_data_l = (const float*)data1[0];
-			const auto* float_data_r = (const float*)data2[0];
+			const auto* float_data_ll = (const float*)data1[0];
+			const auto* float_data_lr = (const float*)data1[1];
+			const auto* float_data_rl = (const float*)data2[0];
+			const auto* float_data_rr = (const float*)data2[1];
 
 			auto* out_left = (float*)out_frame->data[0];
 			auto* out_right = (float*)out_frame->data[1];
@@ -291,8 +293,8 @@ namespace processor
 
 			for (size_t i = 0; i < out_frame->nb_samples; i++)
 			{
-				out_left[i] = float_data_l[i] * bias_minus;
-				out_right[i] = float_data_r[i] * bias_plus;
+				out_left[i] = (float_data_ll[i] / 2 + float_data_lr[i] / 2) * bias_minus;
+				out_right[i] = (float_data_rl[i] / 2 + float_data_rr[i] / 2) * bias_plus;
 			}
 
 			if (frame_l) buf_l.erase(buf_l.begin());
@@ -302,9 +304,6 @@ namespace processor
 
 			if (data1) av_freep(&data1[0]);
 			if (data2) av_freep(&data2[0]);
-
-			av_freep(data1);
-			av_freep(data2);
 
 			if (convert_count_r == 0 && convert_count_l == 0) break;
 		}
