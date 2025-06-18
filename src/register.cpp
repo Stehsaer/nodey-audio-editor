@@ -3,9 +3,13 @@
 
 #include "infra/processor.hpp"
 
+#include "processor/audio-amix.hpp"
+#include "processor/audio-bimix.hpp"
 #include "processor/audio-io.hpp"
 #include "processor/audio-velocity.hpp"
 #include "processor/audio-vol.hpp"
+#include "processor/display-spectrum.hpp"
+#include "processor/display-waveform.hpp"
 
 namespace infra
 {
@@ -16,5 +20,7 @@ namespace infra
 		Processor::register_processor<processor::Audio_vol>();
 		Processor::register_processor<processor::Velocity_modifier>();
 		Processor::register_processor<processor::Pitch_modifier>();
+		Processor::register_processor<processor::Audio_amix>();
+		Processor::register_processor<processor::Audio_bimix>();
 	}
 }

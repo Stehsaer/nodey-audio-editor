@@ -58,6 +58,17 @@ namespace config
 		{
 			inline static constexpr float max_volume = 10;
 		}
+
+		namespace audio_amix
+		{
+			inline static constexpr int std_sample_rate = 48000;
+		}
+
+		namespace audio_bimix
+		{
+			inline static constexpr int std_sample_rate = 48000;
+		}
+
 	}
 }
 
