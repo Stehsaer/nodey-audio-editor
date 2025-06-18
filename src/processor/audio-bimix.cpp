@@ -68,9 +68,9 @@ namespace processor
 		std::any& user_data
 	)
 	{
-		std::vector<AVFrame> buf_l;
-		std::vector<AVFrame> buf_r;
+		std::vector<std::shared_ptr<const Audio_frame>> buf_l, buf_r;
 		std::unique_ptr<bool> initial;
+
 		// 初始化软件重采样器
 		SwrContext* resampler_l = nullptr;
 		SwrContext* resampler_r = nullptr;
@@ -128,7 +128,7 @@ namespace processor
 					THROW_LOGIC_ERROR("Unexpected channel closed in Audio_output::process_payload");
 			}
 			else
-				buf_l.push_back(*(pop_result_l.value())->data());
+				buf_l.push_back(pop_result_l.value());
 
 			const auto pop_result_r = input_item_r.try_pop();
 			if (!pop_result_r.has_value())
@@ -139,7 +139,7 @@ namespace processor
 					THROW_LOGIC_ERROR("Unexpected channel closed in Audio_output::process_payload");
 			}
 			else
-				buf_r.push_back(*(pop_result_r.value())->data());
+				buf_r.push_back(pop_result_r.value());
 
 			if (buf_r.empty() || buf_l.empty() && (!left_eof && !right_eof))
 			{
@@ -153,8 +153,8 @@ namespace processor
 
 			if (!buf_l.empty() && !buf_r.empty())
 			{
-				const auto& frame_l = buf_l.front();
-				const auto& frame_r = buf_r.front();
+				const auto& frame_l = *buf_l.front()->data();
+				const auto& frame_r = *buf_r.front()->data();
 
 				AVFrame* out_frame = new_frame->data();
 				out_frame->nb_samples = std::min(frame_r.nb_samples, frame_l.nb_samples);
@@ -293,7 +293,7 @@ namespace processor
 			{
 				if (left_eof)
 				{
-					const auto& frame_r = buf_r.front();
+					const auto& frame_r = *buf_r.front()->data();
 
 					AVFrame* out_frame = new_frame->data();
 					out_frame->nb_samples = frame_r.nb_samples;
@@ -326,7 +326,8 @@ namespace processor
 					if (convert_count_l < 0)
 						throw Runtime_error(
 							"Software resampler failed",
-							"Cannot convert audio sample rate or format. Internal error may have occurred.",
+							"Cannot convert audio sample rate or format. Internal error may have "
+							"occurred.",
 							"swr_convert() returned error"
 						);
 
@@ -349,7 +350,8 @@ namespace processor
 					if (convert_count_r < 0)
 						throw Runtime_error(
 							"Software resampler failed",
-							"Cannot convert audio sample rate or format. Internal error may have occurred.",
+							"Cannot convert audio sample rate or format. Internal error may have "
+							"occurred.",
 							"swr_convert() returned error"
 						);
 
@@ -374,7 +376,7 @@ namespace processor
 				}
 				if (right_eof)
 				{
-					const auto& frame_l = buf_l.front();
+					const auto& frame_l = *buf_l.front()->data();
 
 					AVFrame* out_frame = new_frame->data();
 					out_frame->nb_samples = frame_l.nb_samples;
@@ -413,7 +415,8 @@ namespace processor
 					if (convert_count_l < 0)
 						throw Runtime_error(
 							"Software resampler failed",
-							"Cannot convert audio sample rate or format. Internal error may have occurred.",
+							"Cannot convert audio sample rate or format. Internal error may have "
+							"occurred.",
 							"swr_convert() returned error"
 						);
 
@@ -430,7 +433,8 @@ namespace processor
 					if (convert_count_r < 0)
 						throw Runtime_error(
 							"Software resampler failed",
-							"Cannot convert audio sample rate or format. Internal error may have occurred.",
+							"Cannot convert audio sample rate or format. Internal error may have "
+							"occurred.",
 							"swr_convert() returned error"
 						);
 
@@ -476,4 +480,32 @@ namespace processor
 
 		return false;
 	}
+
+	Json::Value Audio_bimix::serialize() const
+	{
+		Json::Value value;
+		value["bias"] = bias;
+		return value;
+	}
+
+	void Audio_bimix::deserialize(const Json::Value& value)
+	{
+		if (!value.isMember("bias"))
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: bias"
+			);
+
+		if (!value["bias"].isDouble())
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: bias"
+			);
+
+		bias = value["bias"].asDouble();
+		bias = std::clamp<float>(bias, -1, 1);
+	}
+
 }

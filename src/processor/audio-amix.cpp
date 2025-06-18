@@ -58,6 +58,7 @@ namespace processor
 	)
 	{
 		std::unique_ptr<bool> initial;
+		const auto input_num = this->input_num;
 		int ret;
 		int check = 0;
 		double time_seconds = 0;
@@ -65,7 +66,7 @@ namespace processor
 		eofs.resize(input_num);
 		std::ranges::fill(eofs, false);
 
-		std::vector<std::vector<const AVFrame*>> buffers;
+		std::vector<std::vector<std::shared_ptr<const Audio_frame>>> buffers;
 		buffers.resize(input_num);
 
 		std::vector<std::reference_wrapper<Audio_stream>> input_items;
@@ -127,7 +128,7 @@ namespace processor
 				}
 				else
 				{
-					buffers[i].push_back(pop_result.value()->data());
+					buffers[i].push_back(pop_result.value());
 				}
 			}
 
@@ -156,15 +157,13 @@ namespace processor
 					continue;
 				else
 				{
-					std::vector<const AVFrame*> frames;
-					frames.reserve(buffers.size());
-					for (auto& i : buffers)
-					{
-						if (!i.empty())
-							frames.push_back(i.front());
-						else
-							frames.push_back(nullptr);
-					}
+					const auto front_view
+						= buffers
+						| std::views::transform([](const auto& buffer)
+												{ return buffer.empty() ? nullptr : buffer.front()->data(); }
+						);
+					const std::vector<const AVFrame*> frames(front_view.begin(), front_view.end());
+
 					std::shared_ptr<Audio_frame> new_frame = std::make_shared<Audio_frame>();
 					AVFrame* out_frame = new_frame->data();
 					out_frame->nb_samples = std::numeric_limits<int>::max();
@@ -267,9 +266,11 @@ namespace processor
 				}
 				if (count) continue;
 
-				std::vector<const AVFrame*> frames;
-				frames.reserve(input_num);
-				for (auto& i : buffers) frames.push_back(i.front());
+				const auto front_view
+					= buffers
+					| std::views::transform([](const auto& buffer)
+											{ return buffer.empty() ? nullptr : buffer.front()->data(); });
+				const std::vector<const AVFrame*> frames(front_view.begin(), front_view.end());
 
 				std::shared_ptr<Audio_frame> new_frame = std::make_shared<Audio_frame>();
 				AVFrame* out_frame = new_frame->data();
