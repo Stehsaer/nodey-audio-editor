@@ -308,6 +308,8 @@ namespace processor
 
 			if (convert_count_r == 0 && convert_count_l == 0) break;
 		}
+
+		for (auto& output : output_item) output->set_eof();
 	}
 
 	void Audio_bimix::draw_title()

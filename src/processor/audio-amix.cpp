@@ -29,7 +29,8 @@ namespace processor
 			 .display_name = "Output",
 			 .type = typeid(Audio_stream),
 			 .is_input = false,
-			 .generate_func = []
+			 .generate_func =
+				 []
 			 {
 				 return std::make_shared<Audio_stream>();
 			 }}
@@ -287,6 +288,8 @@ namespace processor
 
 			if (count == input_num) break;
 		}
+
+		for (auto& output : output_item) output->set_eof();
 	}
 
 	void Audio_amix::draw_title()
@@ -313,7 +316,8 @@ namespace processor
 					 .display_name = std::format("Input {}", input_pins.size()),
 					 .type = typeid(Audio_stream),
 					 .is_input = true,
-					 .generate_func = []
+					 .generate_func =
+						 []
 					 {
 						 return std::make_shared<Audio_stream>();
 					 }}
@@ -342,9 +346,6 @@ namespace processor
 
 			for (int i = 0; i < input_num; i++)
 			{
-				bool temp = locks[i];
-				ImGui::Checkbox(std::format("lock_{}", i + 1).c_str(), &temp);
-				locks[i] = temp;
 				if (ImGui::SliderFloat(
 						std::format("Input {} Volume", i + 1).c_str(),
 						&volumes[i],
@@ -366,68 +367,70 @@ namespace processor
 					for (int j = 0; j < input_num; j++)
 						if (!locks[j] && unlock_sum > 0.001f) volumes[j] *= (1.0f - lock_sum) / unlock_sum;
 				}
+
+				ImGui::SameLine();
+
+				bool temp_lock = locks[i];
+				ImGui::Checkbox(std::format("Locked##locked_{}", i).c_str(), &temp_lock);
+				locks[i] = temp_lock;
 			}
-
-			ImGui::SameLine();
-
-			bool temp_lock = locks[i];
-			ImGui::Checkbox(std::format("Locked##locked_{}", i).c_str(), &temp_lock);
-			locks[i] = temp_lock;
 		}
-	}
-	ImGui::EndDisabled();
-	ImGui::PopItemWidth();
+		ImGui::EndDisabled();
+		ImGui::PopItemWidth();
 
-	return change;
-}
-
-Json::Value Audio_amix::serialize() const
-{
-	Json::Value value;
-	value["input_num"] = input_num;
-	for (int i = 0; i < input_num; i++)
-	{
-		value[std::format("volumes{}", i)] = volumes[i];
-		value[std::format("locks{}", i)] = locks[i];
+		return change;
 	}
-	return value;
-}
-void Audio_amix::deserialize(const Json::Value& value)
-{
-	if (!value.isMember("input_num"))
-		throw Runtime_error(
-			"Failed to deserialize JSON file",
-			"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
-			"Wrong field: input_num"
-		);
-	input_num = value["input_num"].asInt();
-	locks.clear();
-	volumes.clear();
-	input_pins.clear();
-	input_pins.push_back(
-		{.identifier = "output",
-		 .display_name = "Output",
-		 .type = typeid(Audio_stream),
-		 .is_input = false,
-		 .generate_func = []
-		 {
-			 return std::make_shared<Audio_stream>();
-		 }}
-	);
-	for (int i = 0; i < input_num; i++)
+
+	Json::Value Audio_amix::serialize() const
 	{
+		Json::Value value;
+		value["input_num"] = input_num;
+		for (int i = 0; i < input_num; i++)
+		{
+			value[std::format("volumes{}", i)] = volumes[i];
+			value[std::format("locks{}", i)] = locks[i];
+		}
+		return value;
+	}
+
+	void Audio_amix::deserialize(const Json::Value& value)
+	{
+		if (!value.isMember("input_num"))
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: input_num"
+			);
+		input_num = value["input_num"].asInt();
+		locks.clear();
+		volumes.clear();
+		input_pins.clear();
 		input_pins.push_back(
-			{.identifier = std::format("input_{}", i + 1),
-			 .display_name = std::format("Input_{}", i + 1),
+			{.identifier = "output",
+			 .display_name = "Output",
 			 .type = typeid(Audio_stream),
-			 .is_input = true,
-			 .generate_func = []
+			 .is_input = false,
+			 .generate_func =
+				 []
 			 {
 				 return std::make_shared<Audio_stream>();
 			 }}
 		);
-		volumes.push_back(value[std::format("volumes{}", i)].asFloat());
-		locks.push_back(value[std::format("locks{}", i)].asBool());
+		for (int i = 0; i < input_num; i++)
+		{
+			input_pins.push_back(
+				{.identifier = std::format("input_{}", i + 1),
+				 .display_name = std::format("Input_{}", i + 1),
+				 .type = typeid(Audio_stream),
+				 .is_input = true,
+				 .generate_func =
+					 []
+				 {
+					 return std::make_shared<Audio_stream>();
+				 }}
+			);
+			volumes.push_back(value[std::format("volumes{}", i)].asFloat());
+			locks.push_back(value[std::format("locks{}", i)].asBool());
+		}
 	}
-}
 }
