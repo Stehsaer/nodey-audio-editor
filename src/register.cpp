@@ -8,8 +8,6 @@
 #include "processor/audio-io.hpp"
 #include "processor/audio-velocity.hpp"
 #include "processor/audio-vol.hpp"
-#include "processor/display-spectrum.hpp"
-#include "processor/display-waveform.hpp"
 
 namespace infra
 {
