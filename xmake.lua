@@ -34,6 +34,11 @@ target("nodey_audio")
 	-- 修复Windows UTF-8
 	if is_plat("windows") then
 		add_cxflags("/utf-8")
+		add_defines("NOMINMAX")
+	end
+
+	if is_mode("debug") then
+		add_defines("_DEBUG")
 	end
 target_end()
 
