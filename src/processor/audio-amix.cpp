@@ -7,7 +7,9 @@
 
 #include <algorithm>
 #include <boost/fiber/operations.hpp>
+#include <cstdio>
 #include <cstdlib>
+#include <format>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -27,8 +29,7 @@ namespace processor
 			 .display_name = "Output",
 			 .type = typeid(Audio_stream),
 			 .is_input = false,
-			 .generate_func =
-				 []
+			 .generate_func = []
 			 {
 				 return std::make_shared<Audio_stream>();
 			 }}
@@ -57,10 +58,11 @@ namespace processor
 		std::any& user_data
 	)
 	{
+
 		std::unique_ptr<bool> initial;
 		const auto input_num = this->input_num;
 		int ret;
-		int check = 0;
+		int count = 0;
 		double time_seconds = 0;
 		std::vector<bool> eofs;
 		eofs.resize(input_num);
@@ -132,218 +134,100 @@ namespace processor
 				}
 			}
 
-			check = 0;
-			for (auto&& eof : eofs)
-				if (eof) check++;
+			bool check = false;
 
-			if (check == input_num)
+			count = 0;
+
+			for (int i = 0; i < input_num; i++)
 			{
-				boost::this_fiber::yield();
-				break;
-			}
-			else if (check > 0 && check < input_num)
-			{
-				bool count = false;
-				for (int i = 0; i < input_num; i++)
+				if (buffers[i].empty() && !eofs[i])
 				{
-					if (buffers[i].empty() && !eofs[i])
-					{
-						boost::this_fiber::yield();
-						count = true;
-						break;
-					}
-				}
-				if (count)
-					continue;
-				else
-				{
-					const auto front_view
-						= buffers
-						| std::views::transform([](const auto& buffer)
-												{ return buffer.empty() ? nullptr : buffer.front()->data(); }
-						);
-					const std::vector<const AVFrame*> frames(front_view.begin(), front_view.end());
-
-					std::shared_ptr<Audio_frame> new_frame = std::make_shared<Audio_frame>();
-					AVFrame* out_frame = new_frame->data();
-					out_frame->nb_samples = std::numeric_limits<int>::max();
-					for (auto& i : frames)
-						out_frame->nb_samples = std::min(out_frame->nb_samples, i->nb_samples);
-					out_frame->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
-					out_frame->sample_rate = config::processor::audio_amix::std_sample_rate;
-					out_frame->format = AV_SAMPLE_FMT_FLTP;
-					time_seconds += frames[0]->nb_samples / double(frames[0]->sample_rate);
-					out_frame->pts = time_seconds * 1000000;
-					out_frame->time_base = {.num = 1, .den = 1000000};
-
-					av_frame_get_buffer(out_frame, 32);
-					av_frame_make_writable(out_frame);
-
-					std::vector<uint8_t**> datas;
-					std::vector<int> linesizes;
-					datas.resize(input_num);
-					linesizes.resize(input_num);
-					std::ranges::fill(datas, nullptr);
-					std::ranges::fill(linesizes, 0);
-
-					for (int i = 0; i < input_num; i++)
-					{
-						av_samples_alloc_array_and_samples(
-							&datas[i],
-							&linesizes[i],
-							2,
-							out_frame->nb_samples,
-							static_cast<AVSampleFormat>(out_frame->format),
-							0
-						);
-						if (frames[i])
-						{
-							const auto convert_count = swr_convert(
-								resamplers[i],
-								datas[i],
-								out_frame->nb_samples,
-								(const uint8_t**)frames[i]->data,
-								frames[i]->nb_samples
-							);
-
-							if (convert_count < 0)
-								throw Runtime_error(
-									"Software resampler failed",
-									"Cannot convert audio sample rate or format. Internal error may have "
-									"occurred.",
-									std::format("swr_convert() returned error {} at input channel {}", ret, i)
-								);
-						}
-						else
-						{
-							const auto convert_count
-								= swr_convert(resamplers[i], datas[i], out_frame->nb_samples, 0, 0);
-
-							if (convert_count < 0)
-								throw Runtime_error(
-									"Software resampler failed",
-									"Cannot convert audio sample rate or format. Internal error may have "
-									"occurred.",
-									std::format("swr_convert() returned error {} at input channel {}", ret, i)
-								);
-						}
-					}
-					auto* out_left = (float*)out_frame->data[0];
-					auto* out_right = (float*)out_frame->data[1];
-					std::memset(out_left, 0, out_frame->nb_samples);
-					std::memset(out_right, 0, out_frame->nb_samples);
-
-					for (int j = 0; j < out_frame->nb_samples; j++)
-					{
-						float temp_l = 0.0f;
-						float temp_r = 0.0f;
-						for (int i = 0; i < input_num; i++)
-						{
-							temp_l += ((const float*)datas[i][0])[j] * volumes[i];
-							temp_r += ((const float*)datas[i][1])[j] * volumes[i];
-						}
-						out_left[j] = temp_l;
-						out_right[j] = temp_r;
-					}
-
-					for (auto& i : buffers)
-						if (!i.empty()) i.erase(i.begin());
-
-					push_frame(new_frame);
+					boost::this_fiber::yield();
+					check = true;
+					break;
 				}
 			}
-			else if (check == 0)
+			if (check) continue;
+
+			const auto front_view
+				= buffers
+				| std::views::transform([](const auto& buffer)
+										{ return buffer.empty() ? nullptr : buffer.front()->data(); });
+			const std::vector<const AVFrame*> frames(front_view.begin(), front_view.end());
+
+			std::shared_ptr<Audio_frame> new_frame = std::make_shared<Audio_frame>();
+			AVFrame* out_frame = new_frame->data();
+			out_frame->nb_samples = std::numeric_limits<int>::max();
+			for (auto& i : frames)
+				if (i) out_frame->nb_samples = std::min(out_frame->nb_samples, i->nb_samples);
+			if (out_frame->nb_samples == std::numeric_limits<int>::max()) out_frame->nb_samples = 1152;
+			out_frame->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
+			out_frame->sample_rate = config::processor::audio_amix::std_sample_rate;
+			out_frame->format = AV_SAMPLE_FMT_FLTP;
+			time_seconds += out_frame->nb_samples / double(out_frame->sample_rate);
+			out_frame->pts = time_seconds * 1000000;
+			out_frame->time_base = {.num = 1, .den = 1000000};
+
+			av_frame_get_buffer(out_frame, 32);
+			av_frame_make_writable(out_frame);
+
+			if (!initial)
 			{
-				bool count = false;
-				for (auto& i : buffers)
-				{
-					if (i.empty())
-					{
-						boost::this_fiber::yield();
-						count = true;
-						break;
-					}
-				}
-				if (count) continue;
-
-				const auto front_view
-					= buffers
-					| std::views::transform([](const auto& buffer)
-											{ return buffer.empty() ? nullptr : buffer.front()->data(); });
-				const std::vector<const AVFrame*> frames(front_view.begin(), front_view.end());
-
-				std::shared_ptr<Audio_frame> new_frame = std::make_shared<Audio_frame>();
-				AVFrame* out_frame = new_frame->data();
-				out_frame->nb_samples = std::numeric_limits<int>::max();
-				for (auto& i : frames) out_frame->nb_samples = std::min(out_frame->nb_samples, i->nb_samples);
-				out_frame->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
-				out_frame->sample_rate = config::processor::audio_amix::std_sample_rate;
-				out_frame->format = AV_SAMPLE_FMT_FLTP;
-				time_seconds += frames[0]->nb_samples / double(frames[0]->sample_rate);
-				out_frame->pts = time_seconds * 1000000;
-				out_frame->time_base = {.num = 1, .den = 1000000};
-
-				av_frame_get_buffer(out_frame, 32);
-				av_frame_make_writable(out_frame);
-
-				if (!initial)
-				{
-					const AVChannelLayout dst_layout = AV_CHANNEL_LAYOUT_STEREO;
-
-					for (int i = 0; i < input_num; i++)
-					{
-						resamplers[i] = swr_alloc();
-						const AVChannelLayout input_layout_r = frames[i]->ch_layout.nb_channels == 2
-																 ? AVChannelLayout(AV_CHANNEL_LAYOUT_STEREO)
-																 : AVChannelLayout(AV_CHANNEL_LAYOUT_MONO);
-
-						av_opt_set_chlayout(resamplers[i], "in_chlayout", &input_layout_r, 0);
-						av_opt_set_int(resamplers[i], "in_sample_rate", frames[i]->sample_rate, 0);
-						av_opt_set_sample_fmt(
-							resamplers[i],
-							"in_sample_fmt",
-							(AVSampleFormat)frames[i]->format,
-							0
-						);
-
-						av_opt_set_chlayout(resamplers[i], "out_chlayout", &dst_layout, 0);
-						av_opt_set_int(
-							resamplers[i],
-							"out_sample_rate",
-							config::processor::audio_amix::std_sample_rate,
-							0
-						);
-						av_opt_set_sample_fmt(resamplers[i], "out_sample_fmt", AV_SAMPLE_FMT_FLTP, 0);
-
-						if (swr_init(resamplers[i]) < 0)
-							throw Runtime_error(
-								"Failed to initialize software resampler",
-								"Cannot start the audio resampling process. Internal error may have "
-								"occurred.",
-								"swr_init() returned error"
-							);
-					}
-					initial = std::make_unique<bool>();
-				}
-
-				std::vector<uint8_t**> datas;
-				std::vector<int> linesizes;
-				datas.resize(input_num);
-				linesizes.resize(input_num);
-				std::ranges::fill(datas, nullptr);
-				std::ranges::fill(linesizes, 0);
+				const AVChannelLayout dst_layout = AV_CHANNEL_LAYOUT_STEREO;
 
 				for (int i = 0; i < input_num; i++)
 				{
-					av_samples_alloc_array_and_samples(
-						&datas[i],
-						&linesizes[i],
-						2,
-						out_frame->nb_samples,
-						static_cast<AVSampleFormat>(out_frame->format),
+					resamplers[i] = swr_alloc();
+					const AVChannelLayout input_layout_r = frames[i]->ch_layout.nb_channels == 2
+															 ? AVChannelLayout(AV_CHANNEL_LAYOUT_STEREO)
+															 : AVChannelLayout(AV_CHANNEL_LAYOUT_MONO);
+
+					av_opt_set_chlayout(resamplers[i], "in_chlayout", &input_layout_r, 0);
+					av_opt_set_int(resamplers[i], "in_sample_rate", frames[i]->sample_rate, 0);
+					av_opt_set_sample_fmt(
+						resamplers[i],
+						"in_sample_fmt",
+						(AVSampleFormat)frames[i]->format,
 						0
 					);
+					av_opt_set_chlayout(resamplers[i], "out_chlayout", &dst_layout, 0);
+					av_opt_set_int(
+						resamplers[i],
+						"out_sample_rate",
+						config::processor::audio_amix::std_sample_rate,
+						0
+					);
+					av_opt_set_sample_fmt(resamplers[i], "out_sample_fmt", AV_SAMPLE_FMT_FLTP, 0);
 
+					if (swr_init(resamplers[i]) < 0)
+						throw Runtime_error(
+							"Failed to initialize software resampler",
+							"Cannot start the audio resampling process. Internal error may have "
+							"occurred.",
+							"swr_init() returned error"
+						);
+				}
+				initial = std::make_unique<bool>();
+			}
+			std::vector<uint8_t**> datas;
+			std::vector<int> linesizes;
+			datas.resize(input_num);
+			linesizes.resize(input_num);
+			std::ranges::fill(datas, nullptr);
+			std::ranges::fill(linesizes, 0);
+
+			for (int i = 0; i < input_num; i++)
+			{
+				av_samples_alloc_array_and_samples(
+					&datas[i],
+					&linesizes[i],
+					2,
+					out_frame->nb_samples,
+					static_cast<AVSampleFormat>(out_frame->format),
+					0
+				);
+				if (frames[i])
+				{
 					const auto convert_count = swr_convert(
 						resamplers[i],
 						datas[i],
@@ -355,41 +239,53 @@ namespace processor
 					if (convert_count < 0)
 						throw Runtime_error(
 							"Software resampler failed",
-							"Cannot convert audio sample rate or format. Internal error may have occurred.",
+							"Cannot convert audio sample rate or format. Internal error may have "
+							"occurred.",
 							std::format("swr_convert() returned error {} at input channel {}", ret, i)
 						);
 				}
-
-				auto* out_left = (float*)out_frame->data[0];
-				auto* out_right = (float*)out_frame->data[1];
-				std::memset(out_left, 0, out_frame->nb_samples);
-				std::memset(out_right, 0, out_frame->nb_samples);
-
-				for (int j = 0; j < out_frame->nb_samples; j++)
+				else if (!frames[i])
 				{
-					float temp_l = 0.0f;
-					float temp_r = 0.0f;
-					for (int i = 0; i < input_num; i++)
-					{
-						temp_l += ((const float*)datas[i][0])[j] * volumes[i];
-						temp_r += ((const float*)datas[i][1])[j] * volumes[i];
-					}
-					out_left[j] = temp_l;
-					out_right[j] = temp_r;
+					const auto convert_count
+						= swr_convert(resamplers[i], datas[i], out_frame->nb_samples, 0, 0);
+
+					if (convert_count < 0)
+						throw Runtime_error(
+							"Software resampler failed",
+							"Cannot convert audio sample rate or format. Internal error may have occurred.",
+							std::format("swr_convert() returned error {} at input channel {}", ret, i)
+						);
+					if (convert_count < out_frame->nb_samples) count++;
 				}
-
-				for (auto& i : buffers) i.erase(i.begin());
-
-				push_frame(new_frame);
 			}
-			else
+			auto* out_left = (float*)out_frame->data[0];
+			auto* out_right = (float*)out_frame->data[1];
+
+			for (int j = 0; j < out_frame->nb_samples; j++)
 			{
-				throw Runtime_error(
-					"Mix Audio fault",
-					"There if more file_eof than file_num",
-					"check < 0 or check > input_num"
-				);
+				float temp_l = 0.0f;
+				float temp_r = 0.0f;
+				for (int i = 0; i < input_num; i++)
+				{
+					temp_l += ((const float*)datas[i][0])[j] * volumes[i];
+					temp_r += ((const float*)datas[i][1])[j] * volumes[i];
+				}
+				out_left[j] = temp_l;
+				out_right[j] = temp_r;
 			}
+
+			for (auto& i : buffers)
+				if (!i.empty()) i.erase(i.begin());
+
+			push_frame(new_frame);
+
+			for (auto& i : datas)
+			{
+				if (i) av_freep(&i[0]);
+				av_freep(i);
+			}
+
+			if (count == input_num) break;
 		}
 	}
 
@@ -400,16 +296,16 @@ namespace processor
 
 	bool Audio_amix::draw_content(bool readonly)
 	{
-		bool check = false;
+		bool change = false;
 		ImGui::PushItemWidth(200);
 		ImGui::BeginDisabled(readonly);
 		{
 			if (ImGui::InputInt("Input Channels", &input_num, 1, 100, 0))
 				input_num = std::clamp(input_num, 1, 16);
 
-			if (input_pins.size() != input_num + 1) check = true;
+			if (input_pins.size() != input_num + 1) change = true;
 
-			int temp_size = input_pins.size();
+			int temp_size = input_pins.size() - 1;
 			while (input_num > input_pins.size() - 1)
 			{
 				input_pins.push_back(
@@ -417,46 +313,38 @@ namespace processor
 					 .display_name = std::format("Input {}", input_pins.size()),
 					 .type = typeid(Audio_stream),
 					 .is_input = true,
-					 .generate_func =
-						 []
+					 .generate_func = []
 					 {
 						 return std::make_shared<Audio_stream>();
 					 }}
 				);
 				volumes.push_back(1.0f / input_num);
 				locks.push_back(false);
-				if (temp_size >= 2)
-				{
-					for (int i = 0; i < temp_size - 1; i++)
-					{
-						volumes[i] *= (float)(input_pins.size() - 2) / (input_pins.size() - 1);
-					}
-				}
 			}
+			if (temp_size)
+				for (int i = 0; i < temp_size - 1; i++) volumes[i] *= (float)(temp_size) / (input_num);
 
+			float temp_volume = 0.0f;
 			while (input_num < input_pins.size() - 1)
 			{
-				float temp_volume = volumes.back();
+				input_pins.pop_back();
 
+				temp_volume += volumes.back();
 				volumes.pop_back();
 				input_pins.pop_back();
 				locks.pop_back();
-
-				if (input_pins.size() > 2)
-				{
-					for (float& volume : volumes)
-					{
-						volume *= 1.0f / (1.0f - temp_volume);
-					}
-				}
-				else if (input_pins.size() == 2)
-				{
-					volumes[0] = 1.0f;
-				}
 			}
+
+			if (input_num > 1)
+				for (float& volume : volumes) volume *= 1.0f / (1.0f - temp_volume);
+			else if (input_num == 1)
+				volumes[0] = 1.0f;
 
 			for (int i = 0; i < input_num; i++)
 			{
+				bool temp = locks[i];
+				ImGui::Checkbox(std::format("lock_{}", i + 1).c_str(), &temp);
+				locks[i] = temp;
 				if (ImGui::SliderFloat(
 						std::format("Input {} Volume", i + 1).c_str(),
 						&volumes[i],
@@ -476,21 +364,70 @@ namespace processor
 							unlock_sum += volumes[j];
 					}
 					for (int j = 0; j < input_num; j++)
-					{
 						if (!locks[j] && unlock_sum > 0.001f) volumes[j] *= (1.0f - lock_sum) / unlock_sum;
-					}
 				}
-
-				ImGui::SameLine();
-
-				bool temp_lock = locks[i];
-				ImGui::Checkbox(std::format("Locked##locked_{}", i).c_str(), &temp_lock);
-				locks[i] = temp_lock;
 			}
-		}
-		ImGui::EndDisabled();
-		ImGui::PopItemWidth();
 
-		return check;
+			ImGui::SameLine();
+
+			bool temp_lock = locks[i];
+			ImGui::Checkbox(std::format("Locked##locked_{}", i).c_str(), &temp_lock);
+			locks[i] = temp_lock;
+		}
 	}
+	ImGui::EndDisabled();
+	ImGui::PopItemWidth();
+
+	return change;
+}
+
+Json::Value Audio_amix::serialize() const
+{
+	Json::Value value;
+	value["input_num"] = input_num;
+	for (int i = 0; i < input_num; i++)
+	{
+		value[std::format("volumes{}", i)] = volumes[i];
+		value[std::format("locks{}", i)] = locks[i];
+	}
+	return value;
+}
+void Audio_amix::deserialize(const Json::Value& value)
+{
+	if (!value.isMember("input_num"))
+		throw Runtime_error(
+			"Failed to deserialize JSON file",
+			"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+			"Wrong field: input_num"
+		);
+	input_num = value["input_num"].asInt();
+	locks.clear();
+	volumes.clear();
+	input_pins.clear();
+	input_pins.push_back(
+		{.identifier = "output",
+		 .display_name = "Output",
+		 .type = typeid(Audio_stream),
+		 .is_input = false,
+		 .generate_func = []
+		 {
+			 return std::make_shared<Audio_stream>();
+		 }}
+	);
+	for (int i = 0; i < input_num; i++)
+	{
+		input_pins.push_back(
+			{.identifier = std::format("input_{}", i + 1),
+			 .display_name = std::format("Input_{}", i + 1),
+			 .type = typeid(Audio_stream),
+			 .is_input = true,
+			 .generate_func = []
+			 {
+				 return std::make_shared<Audio_stream>();
+			 }}
+		);
+		volumes.push_back(value[std::format("volumes{}", i)].asFloat());
+		locks.push_back(value[std::format("locks{}", i)].asBool());
+	}
+}
 }

@@ -141,323 +141,172 @@ namespace processor
 			else
 				buf_r.push_back(pop_result_r.value());
 
-			if (buf_r.empty() || buf_l.empty() && (!left_eof && !right_eof))
+			if ((buf_r.empty() && !right_eof) || (buf_l.empty() && !left_eof))
 			{
 				boost::this_fiber::yield();
 				continue;
 			}
 
-			if (right_eof && left_eof) break;
 			// 获取帧参数
 			std::shared_ptr<Audio_frame> new_frame = std::make_shared<Audio_frame>();
 
-			if (!buf_l.empty() && !buf_r.empty())
+			const auto& frame_l = buf_l.empty() ? nullptr : buf_l.front()->data();
+			const auto& frame_r = buf_r.empty() ? nullptr : buf_r.front()->data();
+
+			AVFrame* out_frame = new_frame->data();
+			if (frame_r && frame_l)
+				out_frame->nb_samples = std::min(frame_r->nb_samples, frame_l->nb_samples);
+			if (!frame_r && frame_l)
+				out_frame->nb_samples = frame_l->nb_samples;
+			else if (frame_r && !frame_l)
+				out_frame->nb_samples = frame_r->nb_samples;
+			else
+				out_frame->nb_samples = 1152;
+			out_frame->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
+			out_frame->sample_rate = 48000;
+			out_frame->format = AV_SAMPLE_FMT_FLTP;
+
+			time_seconds += frame_l->nb_samples / double(frame_l->sample_rate);
+
+			out_frame->pts = time_seconds * 1000000;
+			out_frame->time_base = {.num = 1, .den = 1000000};
+
+			av_frame_get_buffer(out_frame, 32);
+			av_frame_make_writable(out_frame);
+
+			if (!initial)
 			{
-				const auto& frame_l = *buf_l.front()->data();
-				const auto& frame_r = *buf_r.front()->data();
+				resampler_l = swr_alloc();
+				resampler_r = swr_alloc();
 
-				AVFrame* out_frame = new_frame->data();
-				out_frame->nb_samples = std::min(frame_r.nb_samples, frame_l.nb_samples);
-				out_frame->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
-				out_frame->sample_rate = 48000;
-				out_frame->format = AV_SAMPLE_FMT_FLTP;
+				const AVChannelLayout dst_layout = AV_CHANNEL_LAYOUT_MONO;
 
-				time_seconds += frame_l.nb_samples / double(frame_l.sample_rate);
+				const AVChannelLayout input_layout_r = frame_r->ch_layout.nb_channels == 2
+														 ? AVChannelLayout(AV_CHANNEL_LAYOUT_STEREO)
+														 : AVChannelLayout(AV_CHANNEL_LAYOUT_MONO);
+				const AVChannelLayout input_layout_l = frame_l->ch_layout.nb_channels == 2
+														 ? AVChannelLayout(AV_CHANNEL_LAYOUT_STEREO)
+														 : AVChannelLayout(AV_CHANNEL_LAYOUT_MONO);
 
-				out_frame->pts = time_seconds * 1000000;
-				out_frame->time_base = {.num = 1, .den = 1000000};
+				av_opt_set_chlayout(resampler_r, "in_chlayout", &input_layout_r, 0);
+				av_opt_set_int(resampler_r, "in_sample_rate", frame_r->sample_rate, 0);
+				av_opt_set_sample_fmt(resampler_r, "in_sample_fmt", (AVSampleFormat)frame_r->format, 0);
 
-				av_frame_get_buffer(out_frame, 32);
-				av_frame_make_writable(out_frame);
+				av_opt_set_chlayout(resampler_r, "out_chlayout", &dst_layout, 0);
+				av_opt_set_int(resampler_r, "out_sample_rate", 48000, 0);
+				av_opt_set_sample_fmt(resampler_r, "out_sample_fmt", AV_SAMPLE_FMT_FLTP, 0);
 
-				if (!initial)
-				{
-					resampler_l = swr_alloc();
-					resampler_r = swr_alloc();
+				av_opt_set_chlayout(resampler_l, "in_chlayout", &input_layout_l, 0);
+				av_opt_set_int(resampler_l, "in_sample_rate", frame_l->sample_rate, 0);
+				av_opt_set_sample_fmt(resampler_l, "in_sample_fmt", (AVSampleFormat)frame_l->format, 0);
 
-					const AVChannelLayout dst_layout = AV_CHANNEL_LAYOUT_MONO;
+				av_opt_set_chlayout(resampler_l, "out_chlayout", &dst_layout, 0);
+				av_opt_set_int(resampler_l, "out_sample_rate", 48000, 0);
+				av_opt_set_sample_fmt(resampler_l, "out_sample_fmt", AV_SAMPLE_FMT_FLTP, 0);
 
-					const AVChannelLayout input_layout_r = frame_r.ch_layout.nb_channels == 2
-															 ? AVChannelLayout(AV_CHANNEL_LAYOUT_STEREO)
-															 : AVChannelLayout(AV_CHANNEL_LAYOUT_MONO);
-					const AVChannelLayout input_layout_l = frame_l.ch_layout.nb_channels == 2
-															 ? AVChannelLayout(AV_CHANNEL_LAYOUT_STEREO)
-															 : AVChannelLayout(AV_CHANNEL_LAYOUT_MONO);
+				if (swr_init(resampler_r) < 0)
+					throw Runtime_error(
+						"Failed to initialize software resampler",
+						"Cannot start the audio resampling process. Internal error may have "
+						"occurred.",
+						"swr_init() returned error"
+					);
 
-					av_opt_set_chlayout(resampler_r, "in_chlayout", &input_layout_r, 0);
-					av_opt_set_int(resampler_r, "in_sample_rate", frame_r.sample_rate, 0);
-					av_opt_set_sample_fmt(resampler_r, "in_sample_fmt", (AVSampleFormat)frame_r.format, 0);
+				if (swr_init(resampler_l) < 0)
+					throw Runtime_error(
+						"Failed to initialize software resampler",
+						"Cannot start the audio resampling process. Internal error may have "
+						"occurred.",
+						"swr_init() returned error"
+					);
 
-					av_opt_set_chlayout(resampler_r, "out_chlayout", &dst_layout, 0);
-					av_opt_set_int(resampler_r, "out_sample_rate", 48000, 0);
-					av_opt_set_sample_fmt(resampler_r, "out_sample_fmt", AV_SAMPLE_FMT_FLTP, 0);
+				initial = std::make_unique<bool>();
+			}
 
-					av_opt_set_chlayout(resampler_l, "in_chlayout", &input_layout_l, 0);
-					av_opt_set_int(resampler_l, "in_sample_rate", frame_l.sample_rate, 0);
-					av_opt_set_sample_fmt(resampler_l, "in_sample_fmt", (AVSampleFormat)frame_l.format, 0);
+			uint8_t** data1 = nullptr;
+			uint8_t** data2 = nullptr;
 
-					av_opt_set_chlayout(resampler_l, "out_chlayout", &dst_layout, 0);
-					av_opt_set_int(resampler_l, "out_sample_rate", 48000, 0);
-					av_opt_set_sample_fmt(resampler_l, "out_sample_fmt", AV_SAMPLE_FMT_FLTP, 0);
-
-					if (swr_init(resampler_r) < 0)
-						throw Runtime_error(
-							"Failed to initialize software resampler",
-							"Cannot start the audio resampling process. Internal error may have "
-							"occurred.",
-							"swr_init() returned error"
-						);
-
-					if (swr_init(resampler_l) < 0)
-						throw Runtime_error(
-							"Failed to initialize software resampler",
-							"Cannot start the audio resampling process. Internal error may have "
-							"occurred.",
-							"swr_init() returned error"
-						);
-
-					initial = std::make_unique<bool>();
-				}
-
-				uint8_t** data1 = nullptr;
-				uint8_t** data2 = nullptr;
-
-				int linesize_l;
-				av_samples_alloc_array_and_samples(
-					&data1,
-					&linesize_l,
-					1,
-					out_frame->nb_samples,
-					static_cast<AVSampleFormat>(out_frame->format),
-					0
-				);
-
-				const auto convert_count_l = swr_convert(
+			int linesize_l;
+			av_samples_alloc_array_and_samples(
+				&data1,
+				&linesize_l,
+				1,
+				out_frame->nb_samples,
+				static_cast<AVSampleFormat>(out_frame->format),
+				0
+			);
+			int convert_count_l = 0;
+			if (frame_l)
+				convert_count_l = swr_convert(
 					resampler_l,
 					data1,
 					out_frame->nb_samples,
-					(const uint8_t**)frame_l.data,
-					frame_l.nb_samples
+					(const uint8_t**)frame_l->data,
+					frame_l->nb_samples
 				);
-				if (convert_count_l < 0)
-					throw Runtime_error(
-						"Software resampler failed",
-						"Cannot convert audio sample rate or format. Internal error may have occurred.",
-						"swr_convert() returned error"
-					);
+			else
+				convert_count_l = swr_convert(resampler_l, data1, out_frame->nb_samples, 0, 0);
+			if (convert_count_l < 0)
+				throw Runtime_error(
+					"Software resampler failed",
+					"Cannot convert audio sample rate or format. Internal error may have occurred.",
+					"swr_convert() returned error"
+				);
 
-				int linesize_r;
-				av_samples_alloc_array_and_samples(
-					&data2,
-					&linesize_r,
-					1,
-					out_frame->nb_samples,
-					static_cast<AVSampleFormat>(out_frame->format),
-					0
-				);
-				const auto convert_count_r = swr_convert(
+			int linesize_r;
+			av_samples_alloc_array_and_samples(
+				&data2,
+				&linesize_r,
+				1,
+				out_frame->nb_samples,
+				static_cast<AVSampleFormat>(out_frame->format),
+				0
+			);
+			int convert_count_r = 0;
+			if (frame_r)
+				convert_count_r = swr_convert(
 					resampler_r,
 					data2,
 					out_frame->nb_samples,
-					(const uint8_t**)frame_r.data,
-					frame_r.nb_samples
+					(const uint8_t**)frame_r->data,
+					frame_r->nb_samples
 				);
-				if (convert_count_r < 0)
-					throw Runtime_error(
-						"Software resampler failed",
-						"Cannot convert audio sample rate or format. Internal error may have occurred.",
-						"swr_convert() returned error"
-					);
-
-				const auto* float_data_l = (const float*)data1[0];
-				const auto* float_data_r = (const float*)data2[0];
-
-				auto* out_left = (float*)out_frame->data[0];
-				auto* out_right = (float*)out_frame->data[1];
-
-				const float bias_minus = (1 - bias);
-				const float bias_plus = (1 + bias);
-
-				for (size_t i = 0; i < out_frame->nb_samples; i++)
-				{
-					out_left[i] = float_data_l[i] * bias_minus;
-					out_right[i] = float_data_r[i] * bias_plus;
-				}
-
-				buf_l.erase(buf_l.begin());
-				buf_r.erase(buf_r.begin());
-
-				push_frame(new_frame);
-			}
 			else
+				convert_count_l = swr_convert(resampler_r, data2, out_frame->nb_samples, 0, 0);
+			if (convert_count_r < 0)
+				throw Runtime_error(
+					"Software resampler failed",
+					"Cannot convert audio sample rate or format. Internal error may have occurred.",
+					"swr_convert() returned error"
+				);
+
+			const auto* float_data_l = (const float*)data1[0];
+			const auto* float_data_r = (const float*)data2[0];
+
+			auto* out_left = (float*)out_frame->data[0];
+			auto* out_right = (float*)out_frame->data[1];
+
+			const float bias_minus = (1 - bias);
+			const float bias_plus = (1 + bias);
+
+			for (size_t i = 0; i < out_frame->nb_samples; i++)
 			{
-				if (left_eof)
-				{
-					const auto& frame_r = *buf_r.front()->data();
-
-					AVFrame* out_frame = new_frame->data();
-					out_frame->nb_samples = frame_r.nb_samples;
-					out_frame->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
-					out_frame->sample_rate = 48000;
-					out_frame->format = AV_SAMPLE_FMT_FLTP;
-
-					time_seconds += frame_r.nb_samples / double(frame_r.sample_rate);
-
-					out_frame->pts = time_seconds * 1000000;
-					out_frame->time_base = {.num = 1, .den = 1000000};
-
-					av_frame_get_buffer(out_frame, 32);
-					av_frame_make_writable(out_frame);
-
-					uint8_t** data1 = nullptr;
-					uint8_t** data2 = nullptr;
-
-					int linesize_l;
-					av_samples_alloc_array_and_samples(
-						&data1,
-						&linesize_l,
-						1,
-						out_frame->nb_samples,
-						static_cast<AVSampleFormat>(out_frame->format),
-						0
-					);
-
-					const auto convert_count_l = swr_convert(resampler_l, data1, out_frame->nb_samples, 0, 0);
-					if (convert_count_l < 0)
-						throw Runtime_error(
-							"Software resampler failed",
-							"Cannot convert audio sample rate or format. Internal error may have "
-							"occurred.",
-							"swr_convert() returned error"
-						);
-
-					int linesize_r;
-					av_samples_alloc_array_and_samples(
-						&data2,
-						&linesize_r,
-						1,
-						out_frame->nb_samples,
-						static_cast<AVSampleFormat>(out_frame->format),
-						0
-					);
-					const auto convert_count_r = swr_convert(
-						resampler_r,
-						data2,
-						out_frame->nb_samples,
-						(const uint8_t**)frame_r.data,
-						frame_r.nb_samples
-					);
-					if (convert_count_r < 0)
-						throw Runtime_error(
-							"Software resampler failed",
-							"Cannot convert audio sample rate or format. Internal error may have "
-							"occurred.",
-							"swr_convert() returned error"
-						);
-
-					const auto* float_data_l = (const float*)data1[0];
-					const auto* float_data_r = (const float*)data2[0];
-
-					auto* out_left = (float*)out_frame->data[0];
-					auto* out_right = (float*)out_frame->data[1];
-
-					const float bias_minus = (1 - bias);
-					const float bias_plus = (1 + bias);
-
-					for (size_t i = 0; i < out_frame->nb_samples; i++)
-					{
-						out_left[i] = float_data_l[i] * bias_minus;
-						out_right[i] = float_data_r[i] * bias_plus;
-					}
-
-					buf_r.erase(buf_r.begin());
-
-					push_frame(new_frame);
-				}
-				if (right_eof)
-				{
-					const auto& frame_l = *buf_l.front()->data();
-
-					AVFrame* out_frame = new_frame->data();
-					out_frame->nb_samples = frame_l.nb_samples;
-					out_frame->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
-					out_frame->sample_rate = 48000;
-					out_frame->format = AV_SAMPLE_FMT_FLTP;
-
-					time_seconds += frame_l.nb_samples / double(frame_l.sample_rate);
-
-					out_frame->pts = time_seconds * 1000000;
-					out_frame->time_base = {.num = 1, .den = 1000000};
-
-					av_frame_get_buffer(out_frame, 32);
-					av_frame_make_writable(out_frame);
-
-					uint8_t** data1 = nullptr;
-					uint8_t** data2 = nullptr;
-
-					int linesize_l;
-					av_samples_alloc_array_and_samples(
-						&data1,
-						&linesize_l,
-						1,
-						out_frame->nb_samples,
-						static_cast<AVSampleFormat>(out_frame->format),
-						0
-					);
-
-					const auto convert_count_l = swr_convert(
-						resampler_l,
-						data1,
-						out_frame->nb_samples,
-						(const uint8_t**)frame_l.data,
-						frame_l.nb_samples
-					);
-					if (convert_count_l < 0)
-						throw Runtime_error(
-							"Software resampler failed",
-							"Cannot convert audio sample rate or format. Internal error may have "
-							"occurred.",
-							"swr_convert() returned error"
-						);
-
-					int linesize_r;
-					av_samples_alloc_array_and_samples(
-						&data2,
-						&linesize_r,
-						1,
-						out_frame->nb_samples,
-						static_cast<AVSampleFormat>(out_frame->format),
-						0
-					);
-					const auto convert_count_r = swr_convert(resampler_r, data2, out_frame->nb_samples, 0, 0);
-					if (convert_count_r < 0)
-						throw Runtime_error(
-							"Software resampler failed",
-							"Cannot convert audio sample rate or format. Internal error may have "
-							"occurred.",
-							"swr_convert() returned error"
-						);
-
-					const auto* float_data_l = (const float*)data1[0];
-					const auto* float_data_r = (const float*)data2[0];
-
-					auto* out_left = (float*)out_frame->data[0];
-					auto* out_right = (float*)out_frame->data[1];
-
-					const float bias_minus = (1 - bias);
-					const float bias_plus = (1 + bias);
-
-					for (size_t i = 0; i < out_frame->nb_samples; i++)
-					{
-						out_left[i] = float_data_l[i] * bias_minus;
-						out_right[i] = float_data_r[i] * bias_plus;
-					}
-
-					buf_r.erase(buf_r.begin());
-
-					push_frame(new_frame);
-				}
+				out_left[i] = float_data_l[i] * bias_minus;
+				out_right[i] = float_data_r[i] * bias_plus;
 			}
+
+			if (frame_l) buf_l.erase(buf_l.begin());
+			if (frame_r) buf_r.erase(buf_r.begin());
+
+			push_frame(new_frame);
+
+			if (data1) av_freep(&data1[0]);
+			if (data2) av_freep(&data2[0]);
+
+			av_freep(data1);
+			av_freep(data2);
+
+			if (convert_count_r == 0 && convert_count_l == 0) break;
 		}
 	}
 

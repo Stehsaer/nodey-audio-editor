@@ -33,7 +33,7 @@ namespace processor
 	// - 负责更改音频音量
 	class Audio_amix : public infra::Processor
 	{
-
+		
 		int input_num = 2;
 		std::vector<infra::Processor::Pin_attribute> input_pins;
 		std::vector<float> volumes;
@@ -61,8 +61,8 @@ namespace processor
 			std::any& user_data
 		);
 
-		virtual Json::Value serialize() const { return {}; }
-		virtual void deserialize(const Json::Value& value) {}
+		virtual Json::Value serialize() const;
+		virtual void deserialize(const Json::Value& value);
 
 		virtual void draw_title();
 		virtual bool draw_content(bool readonly);
