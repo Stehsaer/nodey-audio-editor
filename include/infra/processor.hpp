@@ -109,8 +109,7 @@ namespace infra
 			const std::map<std::string, std::set<std::shared_ptr<Processor::Product>>>& output,
 			const std::atomic<bool>& stop_token,
 			std::any& user_data
-		) const
-			= 0;
+		) = 0;
 
 		// 静态的注册函数
 		template <typename T>

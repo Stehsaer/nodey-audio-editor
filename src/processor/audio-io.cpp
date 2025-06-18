@@ -21,7 +21,7 @@ namespace processor
 		return infra::Processor::Info{
 			.identifier = "audio_input",
 			.display_name = "Audio Input",
-			.singleton = false,
+			.singleton = true,
 			.generate = std::make_unique<Audio_input>
 		};
 	}
@@ -45,7 +45,7 @@ namespace processor
 		const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 		const std::atomic<bool>& stop_token,
 		std::any& user_data
-	) const
+	)
 	{
 		av_log_set_level(AV_LOG_QUIET);  // 禁用 FFmpeg 的日志输出
 
@@ -267,7 +267,7 @@ namespace processor
 		[[maybe_unused]],
 		const std::atomic<bool>& stop_token,
 		std::any& user_data [[maybe_unused]]
-	) const
+	)
 	{
 		const auto input_item_optional = get_input_item<Audio_stream>(input, "input");
 
@@ -434,9 +434,6 @@ namespace processor
 					"Cannot convert audio sample rate or format. Internal error may have occurred.",
 					"swr_convert() returned error"
 				);
-
-			if constexpr (std::is_same_v<config::audio::Buffer_type, float>)
-				for (auto& val : output_buffer) val = std::clamp<float>(val, -1.0, +1.0);
 
 			while (SDL_GetQueuedAudioSize(frontend_context.audio_device) > config::audio::max_buffer_size)
 			{

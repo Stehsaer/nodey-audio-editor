@@ -27,7 +27,8 @@ namespace processor
 			 .display_name = "Output",
 			 .type = typeid(Audio_stream),
 			 .is_input = false,
-			 .generate_func = []
+			 .generate_func =
+				 []
 			 {
 				 return std::make_shared<Audio_stream>();
 			 }}
@@ -112,26 +113,21 @@ namespace processor
 
 		while (!stop_token)
 		{
-			// 获取数据
-			std::vector<std::expected<std::shared_ptr<const Audio_frame>, boost::fibers::channel_op_status>>
-				pop_result;
-			pop_result.reserve(input_num);
-			for (auto& i : input_items) pop_result.push_back(i.get().try_pop());
-
 			for (int i = 0; i < input_num; i++)
 			{
-				if (!pop_result[i].has_value())
+				auto pop_result = input_items[i].get().try_pop();
+				if (!pop_result.has_value())
 				{
-					if (pop_result[i].error() == boost::fibers::channel_op_status::empty)
+					if (pop_result.error() == boost::fibers::channel_op_status::empty)
 					{
 						if (input_items[i].get().eof()) eofs[i] = true;
 					}
-					else if (pop_result[i].error() == boost::fibers::channel_op_status::closed)
+					else if (pop_result.error() == boost::fibers::channel_op_status::closed)
 						THROW_LOGIC_ERROR("Unexpected channel closed in Audio_output::process_payload");
 				}
 				else
 				{
-					buffers[i].push_back(pop_result[i].value()->data());
+					buffers[i].push_back(pop_result.value()->data());
 				}
 			}
 
@@ -419,7 +415,8 @@ namespace processor
 					 .display_name = std::format("Input_{}", input_pins.size()),
 					 .type = typeid(Audio_stream),
 					 .is_input = true,
-					 .generate_func = []
+					 .generate_func =
+						 []
 					 {
 						 return std::make_shared<Audio_stream>();
 					 }}
