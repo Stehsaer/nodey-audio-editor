@@ -1,7 +1,3 @@
-#ifdef _WIN32
-#define NOMINMAX
-#endif
-
 #include "processor/audio-velocity.hpp"
 #include "frontend/imgui-utility.hpp"
 
@@ -410,7 +406,7 @@ namespace processor
 		const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 		const std::atomic<bool>& stop_token,
 		std::any& user_data [[maybe_unused]]
-	) const
+	)
 	{
 		soundtouch_process_payload(
 			input,
@@ -427,7 +423,7 @@ namespace processor
 		const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 		const std::atomic<bool>& stop_token,
 		std::any& user_data [[maybe_unused]]
-	) const
+	)
 	{
 		soundtouch_process_payload(
 			input,
