@@ -42,7 +42,7 @@ namespace processor
 				 return std::make_shared<Audio_stream>();
 			 }},
 			{.identifier = "input_l",
-			 .display_name = "Input_Left_Channel",
+			 .display_name = "Left",
 			 .type = typeid(Audio_stream),
 			 .is_input = true,
 			 .generate_func =
@@ -51,7 +51,7 @@ namespace processor
 				 return std::make_shared<Audio_stream>();
 			 }},
 			{.identifier = "input_r",
-			 .display_name = "Input_Right_Channel",
+			 .display_name = "Right",
 			 .type = typeid(Audio_stream),
 			 .is_input = true,
 			 .generate_func = []

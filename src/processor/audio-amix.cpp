@@ -404,7 +404,8 @@ namespace processor
 		ImGui::PushItemWidth(200);
 		ImGui::BeginDisabled(readonly);
 		{
-			if (ImGui::InputInt("Input_Num", &input_num, 1, 100, 0)) input_num = std::max(0, input_num);
+			if (ImGui::InputInt("Input Channels", &input_num, 1, 100, 0))
+				input_num = std::clamp(input_num, 1, 16);
 
 			if (input_pins.size() != input_num + 1) check = true;
 
@@ -413,7 +414,7 @@ namespace processor
 			{
 				input_pins.push_back(
 					{.identifier = std::format("input_{}", input_pins.size()),
-					 .display_name = std::format("Input_{}", input_pins.size()),
+					 .display_name = std::format("Input {}", input_pins.size()),
 					 .type = typeid(Audio_stream),
 					 .is_input = true,
 					 .generate_func =
@@ -435,11 +436,10 @@ namespace processor
 
 			while (input_num < input_pins.size() - 1)
 			{
-				input_pins.pop_back();
-
 				float temp_volume = volumes.back();
-				volumes.pop_back();
 
+				volumes.pop_back();
+				input_pins.pop_back();
 				locks.pop_back();
 
 				if (input_pins.size() > 2)
@@ -457,15 +457,8 @@ namespace processor
 
 			for (int i = 0; i < input_num; i++)
 			{
-				bool temp_lock = locks[i];
-				ImGui::Checkbox(std::format("lock_{}", i + 1).c_str(), &temp_lock);
-				locks[i] = temp_lock;
-			}
-
-			for (int i = 0; i < input_num; i++)
-			{
 				if (ImGui::SliderFloat(
-						std::format("Input_{} volume", i + 1).c_str(),
+						std::format("Input {} Volume", i + 1).c_str(),
 						&volumes[i],
 						0.001f,
 						0.999f,
@@ -487,6 +480,12 @@ namespace processor
 						if (!locks[j] && unlock_sum > 0.001f) volumes[j] *= (1.0f - lock_sum) / unlock_sum;
 					}
 				}
+
+				ImGui::SameLine();
+
+				bool temp_lock = locks[i];
+				ImGui::Checkbox(std::format("Locked##locked_{}", i).c_str(), &temp_lock);
+				locks[i] = temp_lock;
 			}
 		}
 		ImGui::EndDisabled();
