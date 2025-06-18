@@ -23,7 +23,6 @@ target("nodey_audio")
 		"ffmpeg", 
 		"boost", 
 		"fftw",
-		"nativefiledialog",
 		"soundtouch"
 	)
 	
@@ -35,7 +34,6 @@ target("nodey_audio")
 	-- 修复Windows UTF-8
 	if is_plat("windows") then
 		add_cxflags("/utf-8")
-		add_defines("NOMINMAX")
 	end
 target_end()
 
