@@ -5,7 +5,7 @@ add_requires("jsoncpp 1.9.6",			{system=false})
 add_requires("libsdl2 2.32.2",			{system=false, configs={sdl2_image=false, sdl2_mixer=true, sdl2_ttf=false}})
 add_requires("ffmpeg 7.1",				{system=false, configs={shared=true, ffmpeg=false}})
 add_requires("boost 1.88.0",			{system=false, configs={cmake=false, fiber=true}})
-add_requires("fftw 3.3.10",				{system=false})
+add_requires("fftw 3.3.10",				{system=false, configs={precision="float"}})
 add_requires("soundtouch 2.3.2",		{system=false})
 
 includes("third-party")
