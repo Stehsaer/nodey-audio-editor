@@ -5,6 +5,7 @@
 #include "processor/audio-velocity.hpp"
 #include "frontend/imgui-utility.hpp"
 
+#include <algorithm>
 #include <boost/fiber/operations.hpp>
 #include <soundtouch/SoundTouch.h>
 
@@ -210,7 +211,7 @@ namespace processor
 		const std::vector<float>& samples,
 		int sample_rate,
 		int channel_count,
-		float time_ms
+		float time_us
 	)
 	{
 		std::shared_ptr<Audio_frame> new_frame = std::make_shared<Audio_frame>();
@@ -220,8 +221,8 @@ namespace processor
 		frame->ch_layout.nb_channels = channel_count;
 		frame->nb_samples = static_cast<int>(samples.size() / channel_count);
 		frame->format = AV_SAMPLE_FMT_FLT;
-		frame->time_base = {.num = 1, .den = 1000};
-		frame->pts = static_cast<int64_t>(time_ms);
+		frame->time_base = {.num = 1, .den = 1000000};
+		frame->pts = static_cast<int64_t>(time_us);
 
 		av_frame_make_writable(frame);
 		av_frame_get_buffer(frame, 0);
@@ -232,7 +233,7 @@ namespace processor
 				"Audio frame data pointer is null"
 			);
 
-		std::copy(samples.begin(), samples.end(), reinterpret_cast<float*>(frame->data[0]));
+		std::ranges::copy(samples, reinterpret_cast<float*>(frame->data[0]));
 
 		return new_frame;
 	}
@@ -264,7 +265,7 @@ namespace processor
 
 		const float time_ratio = 1.0f / velocity;
 		int channel_count, sample_rate;
-		float pts_begin = 0.0f;
+		double pts_begin = 0.0;  // 记录当前帧的时间
 
 		auto acquire_func = [&](int count)
 		{
@@ -283,10 +284,10 @@ namespace processor
 				output_samples,
 				sample_rate,
 				channel_count,
-				pts_begin + soundtouch->numSamples() * 1000.0f / sample_rate
+				pts_begin + soundtouch->numSamples() * 1000000.0f / sample_rate
 			);
 
-			pts_begin += static_cast<float>(samples_read) * 1000.0f / sample_rate;
+			pts_begin += static_cast<float>(samples_read) * 1000000.0f / sample_rate;
 
 			for (auto& stream : output_stream)
 			{
