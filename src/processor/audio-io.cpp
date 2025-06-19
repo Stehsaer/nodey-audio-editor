@@ -27,7 +27,16 @@ namespace processor
 			.identifier = "audio_input",
 			.display_name = "Audio Input",
 			.singleton = true,
-			.generate = std::make_unique<Audio_input>
+			.generate = std::make_unique<Audio_input>,
+			.description = "Audio Input Processor\n\n"
+						   "## Functionality\n"
+						   "- Reads audio files and outputs audio streams\n"
+						   "- Supports multiple file inputs with configurable paths\n"
+						   "- Outputs audio in 48kHz, 32-bit float format\n\n"
+						   "## Usage\n"
+						   "- Add file paths to the input list\n"
+						   "- Connect output pins to other audio processors or outputs\n"
+						   "- Supports real-time audio playback from files",
 		};
 	}
 
@@ -333,6 +342,8 @@ namespace processor
 	bool Audio_input::draw_content(bool readonly)
 	{
 		bool modified = false;
+		imgui_utility::display_processor_description(get_processor_info().description, false);
+		ImGui::Separator();
 
 		if (remove_index.has_value())
 		{
@@ -352,59 +363,71 @@ namespace processor
 
 		if (file_count < file_paths.size())
 			THROW_LOGIC_ERROR("File count of ({}) smaller than file paths size ({})", file_count, file_paths);
-
-		ImGui::SetNextItemWidth(200);
-		ImGui::BeginGroup();
-		ImGui::BeginDisabled(readonly);
+		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			for (size_t i = 0; i < file_count; i++)
+			ImGui::SetNextItemWidth(200);
+			ImGui::BeginGroup();
+			ImGui::BeginDisabled(readonly);
 			{
-				ImGui::Text("Slot %zu", i + 1);
-				ImGui::SameLine();
-				if (ImGui::Button(std::format("Browse " ICON_EXT_LINK "##browse_button_{}", i).c_str()))
+				for (size_t i = 0; i < file_count; i++)
 				{
-					const auto& current_path = file_paths[i];
-					std::string default_path = ".";
+					ImGui::Text("Slot %zu", i + 1);
+					ImGui::SameLine();
+					if (ImGui::Button(std::format("Browse " ICON_EXT_LINK "##browse_button_{}", i).c_str()))
+					{
+						const auto& current_path = file_paths[i];
+						std::string default_path = ".";
 
-					if (std::filesystem::exists(current_path)
-						&& std::filesystem::is_regular_file(current_path))
-						default_path = std::filesystem::path(current_path).parent_path().string();
+						if (std::filesystem::exists(current_path)
+							&& std::filesystem::is_regular_file(current_path))
+							default_path = std::filesystem::path(current_path).parent_path().string();
 
-					const auto open_file_result = open_file_dialog(
-						"Select Audio File",
-						{"Audio Files (*.wav, *.mp3, *.flac, *.ogg)",
-						 "*.wav *.mp3 *.flac *.ogg",
-						 "All Files",
-						 "*.*"},
-						default_path
-					);
+						const auto open_file_result = open_file_dialog(
+							"Select Audio File",
+							{"Audio Files (*.wav, *.mp3, *.flac, *.ogg)",
+							 "*.wav *.mp3 *.flac *.ogg",
+							 "All Files",
+							 "*.*"},
+							default_path
+						);
 
-					if (open_file_result.has_value()) file_paths[i] = open_file_result.value();
+						if (open_file_result.has_value()) file_paths[i] = open_file_result.value();
+					}
+
+					ImGui::SameLine();
+
+					ImGui::BeginDisabled(file_count == 1);
+					if (ImGui::Button(std::format(ICON_TRASH "##delete_button_{}", i).c_str()))
+						remove_index = i;
+					ImGui::EndDisabled();
 				}
 
-				ImGui::SameLine();
-
-				ImGui::BeginDisabled(file_count == 1);
-				if (ImGui::Button(std::format(ICON_TRASH "##delete_button_{}", i).c_str())) remove_index = i;
-				ImGui::EndDisabled();
+				if (ImGui::Button(ICON_FILE_ADD)) file_count++;
 			}
-
-			if (ImGui::Button(ICON_FILE_ADD)) file_count++;
+			ImGui::EndDisabled();
+			ImGui::EndGroup();
 		}
-		ImGui::EndDisabled();
-		ImGui::EndGroup();
 
 		return modified;
 	}
 
 	infra::Processor::Info Audio_output::get_processor_info()
 	{
-		return infra::Processor::Info{
-			.identifier = "audio_output",
-			.display_name = "Audio Output",
-			.singleton = true,
-			.generate = std::make_unique<Audio_output>
-		};
+		return infra::Processor::
+			Info{
+				.identifier = "audio_output", 
+				.display_name = "Audio Output", 
+				.singleton = true, 
+				.generate = std::make_unique<Audio_output>,\
+				.description = "Audio Output Processor\n\n"
+							   "## Functionality\n"
+							   "- Outputs audio streams to the system's audio device\n"
+							   "- Supports real-time audio playback\n"
+							   "- Outputs audio in 48kHz, 32-bit float format\n\n"
+							   "## Usage\n"
+							   "- Connect an audio stream input to the 'Input' pin\n"
+							   "- The processor will play the audio through the system's default output device",
+			};
 	}
 
 	std::vector<infra::Processor::Pin_attribute> Audio_output::get_pin_attributes() const
@@ -414,7 +437,8 @@ namespace processor
 			 .display_name = "Input",
 			 .type = typeid(Audio_stream),
 			 .is_input = true,
-			 .generate_func = []
+			 .generate_func =
+				 []
 			 {
 				 return std::make_shared<Audio_stream>();
 			 }},
@@ -424,6 +448,18 @@ namespace processor
 	void Audio_output::draw_title()
 	{
 		imgui_utility::shadowed_text("Audio Output");
+	}
+	bool Audio_output::draw_content(bool readonly){
+		imgui_utility::display_processor_description(get_processor_info().description, false);
+		ImGui::Separator();
+
+		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			ImGui::Text("This processor outputs audio to the system's default audio device.");
+			ImGui::Text("No configurable properties available.");
+		}
+
+		return false;  // No modifications
 	}
 
 	void Audio_output::process_payload(

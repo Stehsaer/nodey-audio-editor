@@ -43,7 +43,21 @@ namespace processor
 			.identifier = "audio_amix",
 			.display_name = "Audio Amix",
 			.singleton = false,
-			.generate = std::make_unique<Audio_amix>
+			.generate = std::make_unique<Audio_amix>,
+			.description = "Multi-Channel Audio Mixer\n\n"
+						   "## Functionality\n"
+						   "- Mix multiple audio input streams into a single stereo output\n"
+						   "- Support 1-16 configurable input channels with real-time adjustment\n"
+						   "- Volume lock mechanism to prevent accidental changes to critical channels\n\n"
+						   "## Output Format\n"
+						   "- Sample Rate: 48kHz\n"
+						   "- Format: 32-bit Float Planar\n"
+						   "- Channels: Stereo (Left/Right)\n\n"
+						   "## Usage\n"
+						   "- Set desired number of input channels (1-16)\n"
+						   "- Connect audio sources to input pins\n"
+						   "- Adjust volume levels for each channel using sliders\n"
+						   "- Use 'Locked' checkbox to prevent accidental volume changes"
 		};
 	}
 
@@ -300,81 +314,90 @@ namespace processor
 	bool Audio_amix::draw_content(bool readonly)
 	{
 		bool change = false;
-		ImGui::PushItemWidth(200);
-		ImGui::BeginDisabled(readonly);
+		// 使用折叠标题来显示描述信息
+		imgui_utility::display_processor_description(get_processor_info().description,false);
+		ImGui::Separator();
+
+		if(ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			if (ImGui::InputInt("Input Channels", &input_num, 1, 100, 0))
-				input_num = std::clamp(input_num, 1, 16);
-
-			if (input_pins.size() != input_num + 1) change = true;
-
-			int temp_size = input_pins.size() - 1;
-			while (input_num > input_pins.size() - 1)
+			ImGui::PushItemWidth(200);
+			ImGui::BeginDisabled(readonly);
 			{
-				input_pins.push_back(
-					{.identifier = std::format("input_{}", input_pins.size()),
-					 .display_name = std::format("Input {}", input_pins.size()),
-					 .type = typeid(Audio_stream),
-					 .is_input = true,
-					 .generate_func =
-						 []
-					 {
-						 return std::make_shared<Audio_stream>();
-					 }}
-				);
-				volumes.push_back(1.0f / input_num);
-				locks.push_back(false);
-			}
-			if (temp_size)
-				for (int i = 0; i < temp_size - 1; i++) volumes[i] *= (float)(temp_size) / (input_num);
+				if (ImGui::InputInt("Input Channels", &input_num, 1, 100, 0))
+					input_num = std::clamp(input_num, 1, 16);
 
-			float temp_volume = 0.0f;
-			while (input_num < input_pins.size() - 1)
-			{
-				input_pins.pop_back();
+				if (input_pins.size() != input_num + 1) change = true;
 
-				temp_volume += volumes.back();
-				volumes.pop_back();
-				input_pins.pop_back();
-				locks.pop_back();
-			}
-
-			if (input_num > 1)
-				for (float& volume : volumes) volume *= 1.0f / (1.0f - temp_volume);
-			else if (input_num == 1)
-				volumes[0] = 1.0f;
-
-			for (int i = 0; i < input_num; i++)
-			{
-				if (ImGui::SliderFloat(
-						std::format("Input {} Volume", i + 1).c_str(),
-						&volumes[i],
-						0.001f,
-						0.999f,
-						"%.3f",
-						0
-					))
+				int temp_size = input_pins.size() - 1;
+				while (input_num > input_pins.size() - 1)
 				{
-					float lock_sum = 0.0f;
-					float unlock_sum = 0.0f;
-					for (int j = 0; j < input_num; j++)
-					{
-						if (locks[j])
-							lock_sum += volumes[j];
-						else
-							unlock_sum += volumes[j];
-					}
-					for (int j = 0; j < input_num; j++)
-						if (!locks[j] && unlock_sum > 0.001f) volumes[j] *= (1.0f - lock_sum) / unlock_sum;
+					input_pins.push_back(
+						{.identifier = std::format("input_{}", input_pins.size()),
+						 .display_name = std::format("Input {}", input_pins.size()),
+						 .type = typeid(Audio_stream),
+						 .is_input = true,
+						 .generate_func =
+							 []
+						 {
+							 return std::make_shared<Audio_stream>();
+						 }}
+					);
+					volumes.push_back(1.0f / input_num);
+					locks.push_back(false);
+				}
+				if (temp_size)
+					for (int i = 0; i < temp_size - 1; i++) volumes[i] *= (float)(temp_size) / (input_num);
+
+				float temp_volume = 0.0f;
+				while (input_num < input_pins.size() - 1)
+				{
+					input_pins.pop_back();
+
+					temp_volume += volumes.back();
+					volumes.pop_back();
+					input_pins.pop_back();
+					locks.pop_back();
 				}
 
-				bool temp_lock = locks[i];
-				ImGui::Checkbox(std::format("Locked##locked_{}", i).c_str(), &temp_lock);
-				locks[i] = temp_lock;
+				if (input_num > 1)
+					for (float& volume : volumes) volume *= 1.0f / (1.0f - temp_volume);
+				else if (input_num == 1)
+					volumes[0] = 1.0f;
+
+				for (int i = 0; i < input_num; i++)
+				{
+					if (ImGui::SliderFloat(
+							std::format("Input {} Volume", i + 1).c_str(),
+							&volumes[i],
+							0.001f,
+							0.999f,
+							"%.3f",
+							0
+						))
+					{
+						float lock_sum = 0.0f;
+						float unlock_sum = 0.0f;
+						for (int j = 0; j < input_num; j++)
+						{
+							if (locks[j])
+								lock_sum += volumes[j];
+							else
+								unlock_sum += volumes[j];
+						}
+						for (int j = 0; j < input_num; j++)
+							if (!locks[j] && unlock_sum > 0.001f)
+								volumes[j] *= (1.0f - lock_sum) / unlock_sum;
+					}
+
+					bool temp_lock = locks[i];
+					ImGui::Checkbox(std::format("Locked##locked_{}", i).c_str(), &temp_lock);
+					locks[i] = temp_lock;
+				}
 			}
+			ImGui::EndDisabled();
+			ImGui::PopItemWidth();
 		}
-		ImGui::EndDisabled();
-		ImGui::PopItemWidth();
+
 
 		return change;
 	}
