@@ -569,8 +569,6 @@ std::future<App::New_project_window_result> App::add_new_project_confirm_window_
 // 保存项目
 void App::save_project()
 {
-	if (!graph.modified) return;  // 如果没有修改，则不需要保存
-
 	if (graph_path.empty() || !std::filesystem::exists(graph_path)
 		|| !std::filesystem::is_regular_file(graph_path))
 	{
@@ -1460,7 +1458,8 @@ void App::draw_diagnostics_overlay()
 					try
 					{
 						const auto& product = dynamic_cast<const processor::Audio_stream&>(*link);
-						const float fill_ratio = (float)product.buffered_count() / processor::max_queue_size;
+						const float fill_ratio
+							= (float)product.buffered_count() / config::processor::audio_stream::buffer_size;
 
 						// < 60%: 红色
 						// 60% - 80%: 黄色

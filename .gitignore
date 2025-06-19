@@ -5,5 +5,5 @@ build/
 # MacOS Cache
 .DS_Store
 
+# VSCode
 .vscode
-todo.md

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "config.hpp"
 #include "infra/processor.hpp"
 
 extern "C"
@@ -16,8 +17,6 @@ extern "C"
 
 namespace processor
 {
-	inline static constexpr size_t max_queue_size = 128;
-
 	// 音频帧
 	// - 封装了libav中的AVFrame，保证内存安全
 	class Audio_frame
@@ -53,7 +52,7 @@ namespace processor
 	  public:
 
 		Audio_stream() :
-			channel(max_queue_size),
+			channel(config::processor::audio_stream::buffer_size),
 			end_of_stream(false)
 		{
 		}

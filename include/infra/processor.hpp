@@ -5,10 +5,10 @@
 #include <functional>
 #include <json/json.h>
 #include <memory>
+#include <optional>
 #include <set>
 #include <source_location>
 #include <stop_token>
-#include <optional>
 
 #include "utility/logic-error-utility.hpp"
 
@@ -109,8 +109,7 @@ namespace infra
 			const std::map<std::string, std::set<std::shared_ptr<Processor::Product>>>& output,
 			const std::atomic<bool>& stop_token,
 			std::any& user_data
-		) const
-			= 0;
+		) = 0;
 
 		// 静态的注册函数
 		template <typename T>
