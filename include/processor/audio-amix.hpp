@@ -16,7 +16,9 @@ extern "C"
 #include <libavutil/channel_layout.h>
 #include <libavutil/common.h>
 #include <libavutil/mathematics.h>
+#include <libavutil/opt.h>
 #include <libavutil/samplefmt.h>
+#include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 }
 
@@ -29,33 +31,38 @@ namespace processor
 
 	// 音量调节处理器
 	// - 负责更改音频音量
-	class Audio_vol : public infra::Processor
+	class Audio_amix : public infra::Processor
 	{
-		float volume = 1.0;
+		
+		int input_num = 2;
+		std::vector<infra::Processor::Pin_attribute> input_pins;
+		std::vector<float> volumes;
+		std::vector<bool> locks;
 
 	  public:
 
-		Audio_vol() = default;
-		virtual ~Audio_vol() = default;
+		Audio_amix();
+		virtual ~Audio_amix() = default;
 
-		Audio_vol(const Audio_vol&) = delete;
-		Audio_vol(Audio_vol&&) = default;
-		Audio_vol& operator=(const Audio_vol&) = delete;
-		Audio_vol& operator=(Audio_vol&&) = default;
+		Audio_amix(const Audio_amix&) = delete;
+		Audio_amix(Audio_amix&&) = default;
+		Audio_amix& operator=(const Audio_amix&) = delete;
+		Audio_amix& operator=(Audio_amix&&) = default;
 
 		static infra::Processor::Info get_processor_info();
 		virtual Processor::Info get_processor_info_non_static() const { return get_processor_info(); }
 
 		virtual std::vector<infra::Processor::Pin_attribute> get_pin_attributes() const;
-		virtual void process_payload(
+
+		void process_payload(
 			const std::map<std::string, std::shared_ptr<infra::Processor::Product>>& input,
 			const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 			const std::atomic<bool>& stop_token,
 			std::any& user_data
 		);
 
-		virtual Json::Value serialize() const { return {}; }
-		virtual void deserialize(const Json::Value& value) {}
+		virtual Json::Value serialize() const;
+		virtual void deserialize(const Json::Value& value);
 
 		virtual void draw_title();
 		virtual bool draw_content(bool readonly);

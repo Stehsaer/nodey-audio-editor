@@ -58,7 +58,7 @@ namespace processor
 		const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 		const std::atomic<bool>& stop_token,
 		std::any& user_data [[maybe_unused]]
-	) const
+	)
 	{
 #ifndef _DEBUG
 		av_log_set_level(AV_LOG_QUIET);  // 禁用 FFmpeg 的日志输出
@@ -424,7 +424,7 @@ namespace processor
 		[[maybe_unused]],
 		const std::atomic<bool>& stop_token,
 		std::any& user_data [[maybe_unused]]
-	) const
+	)
 	{
 		const auto input_item_optional = get_input_item<Audio_stream>(input, "input");
 

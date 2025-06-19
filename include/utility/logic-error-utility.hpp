@@ -3,7 +3,7 @@
 	{                                                                                                        \
 		throw std::logic_error(                                                                              \
 			std::format(                                                                                     \
-				"{}({})" msg,                                                                                \
+				"{}({}): " msg,                                                                              \
 				std::source_location::current().file_name(),                                                 \
 				std::source_location::current().line(),                                                      \
 				##__VA_ARGS__                                                                                \

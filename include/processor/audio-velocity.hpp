@@ -30,7 +30,7 @@ namespace processor
 			const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 			const std::atomic<bool>& stop_token,
 			std::any& user_data
-		) const;
+		);
 
 		virtual Json::Value serialize() const { return {}; }
 		virtual void deserialize(const Json::Value& value) {}
@@ -62,7 +62,7 @@ namespace processor
 			const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 			const std::atomic<bool>& stop_token,
 			std::any& user_data
-		) const;
+		);
 
 		virtual Json::Value serialize() const { return {}; }
 		virtual void deserialize(const Json::Value& value) {}

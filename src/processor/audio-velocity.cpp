@@ -5,6 +5,7 @@
 #include "processor/audio-velocity.hpp"
 #include "frontend/imgui-utility.hpp"
 
+#include <algorithm>
 #include <boost/fiber/operations.hpp>
 #include <soundtouch/SoundTouch.h>
 
@@ -210,7 +211,7 @@ namespace processor
 		const std::vector<float>& samples,
 		int sample_rate,
 		int channel_count,
-		float time_ms
+		float time_us
 	)
 	{
 		std::shared_ptr<Audio_frame> new_frame = std::make_shared<Audio_frame>();
@@ -220,8 +221,8 @@ namespace processor
 		frame->ch_layout.nb_channels = channel_count;
 		frame->nb_samples = static_cast<int>(samples.size() / channel_count);
 		frame->format = AV_SAMPLE_FMT_FLT;
-		frame->time_base = {.num = 1, .den = 1000};
-		frame->pts = static_cast<int64_t>(time_ms);
+		frame->time_base = {.num = 1, .den = 1000000};
+		frame->pts = static_cast<int64_t>(time_us);
 
 		av_frame_make_writable(frame);
 		av_frame_get_buffer(frame, 0);
@@ -232,7 +233,7 @@ namespace processor
 				"Audio frame data pointer is null"
 			);
 
-		std::copy(samples.begin(), samples.end(), reinterpret_cast<float*>(frame->data[0]));
+		std::ranges::copy(samples, reinterpret_cast<float*>(frame->data[0]));
 
 		return new_frame;
 	}
@@ -262,9 +263,9 @@ namespace processor
 
 		bool input_stream_eof = false;
 
-		const float time_ratio = 1.0f / velocity;
+		const double time_ratio = 1.0f / velocity;
 		int channel_count, sample_rate;
-		float pts_begin = 0.0f;
+		double time_seconds = 0.0;  // 记录当前帧的时间
 
 		auto acquire_func = [&](int count)
 		{
@@ -279,14 +280,16 @@ namespace processor
 					std::format("Received {} samples, expected at least {}", samples_read, count)
 				);
 
+			output_samples.resize(samples_read * channel_count);
+
 			std::shared_ptr<Audio_frame> new_frame = construct_audio_frame_float(
 				output_samples,
 				sample_rate,
 				channel_count,
-				pts_begin + soundtouch->numSamples() * 1000.0f / sample_rate
+				time_seconds * 1000000
 			);
 
-			pts_begin += static_cast<float>(samples_read) * 1000.0f / sample_rate;
+			time_seconds += double(samples_read) / sample_rate;
 
 			for (auto& stream : output_stream)
 			{
@@ -358,7 +361,7 @@ namespace processor
 						soundtouch->setPitch(pitch);
 
 						channel_count = frame->ch_layout.nb_channels;
-						pts_begin = frame->pts * av_q2d(frame->time_base);
+						time_seconds = frame->pts * av_q2d(frame->time_base);
 						sample_rate = frame->sample_rate;
 					}
 
@@ -420,7 +423,7 @@ namespace processor
 		const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 		const std::atomic<bool>& stop_token,
 		std::any& user_data [[maybe_unused]]
-	) const
+	)
 	{
 		soundtouch_process_payload(
 			input,
@@ -437,7 +440,7 @@ namespace processor
 		const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 		const std::atomic<bool>& stop_token,
 		std::any& user_data [[maybe_unused]]
-	) const
+	)
 	{
 		soundtouch_process_payload(
 			input,

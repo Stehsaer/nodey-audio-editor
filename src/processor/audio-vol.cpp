@@ -96,7 +96,7 @@ namespace processor
 		const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 		const std::atomic<bool>& stop_token,
 		std::any& user_data [[maybe_unused]]
-	) const
+	)
 	{
 		const auto input_item_optional = get_input_item<Audio_stream>(input, "input");
 		const auto output_item = get_output_item<Audio_stream>(output, "output");
