@@ -331,17 +331,20 @@ namespace processor
 	bool Audio_amix::draw_content(bool readonly)
 	{
 		bool change = false;
-		ImGui::PushItemWidth(200);
-		ImGui::BeginDisabled(readonly);
+		ImGui::Separator();
+		if(ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			if (ImGui::InputInt("Input Channels", &input_num, 1, 100, 0))
+			ImGui::PushItemWidth(200);
+			ImGui::BeginDisabled(readonly);
 			{
-				input_num = std::clamp(input_num, 1, 16);
-				change = true;
-			}
+				if (ImGui::InputInt("Input Channels", &input_num, 1, 100, 0))
+				{
+					input_num = std::clamp(input_num, 1, 16);
+					change = true;
+				}
 
-			volumes.resize(input_num, 1.0f);
-			locks.resize(input_num, false);
+				volumes.resize(input_num, 1.0f);
+				locks.resize(input_num, false);
 
 				for (int i = 0; i < input_num; i++)
 				{
@@ -368,24 +371,24 @@ namespace processor
 								volumes[j] *= (1.0f - lock_sum) / unlock_sum;
 					}
 
-				bool temp_lock = locks[i];
-				ImGui::Checkbox(std::format("Locked##locked_{}", i).c_str(), &temp_lock);
-				locks[i] = temp_lock;
-			}
+					bool temp_lock = locks[i];
+					ImGui::Checkbox(std::format("Locked##locked_{}", i).c_str(), &temp_lock);
+					locks[i] = temp_lock;
+				}
 
-			float unlocked_volume_sum = 0.0f;
-			for (int i = 0; i < input_num; i++) unlocked_volume_sum += locks[i] ? 0.0f : volumes[i];
-			unlocked_volume_sum = std::max<float>(unlocked_volume_sum, 0.001f);
+				float unlocked_volume_sum = 0.0f;
+				for (int i = 0; i < input_num; i++) unlocked_volume_sum += locks[i] ? 0.0f : volumes[i];
+				unlocked_volume_sum = std::max<float>(unlocked_volume_sum, 0.001f);
 
-			for (int i = 0; i < input_num; i++)
-			{
-				if (locks[i]) continue;
-				volumes[i] /= unlocked_volume_sum;
+				for (int i = 0; i < input_num; i++)
+				{
+					if (locks[i]) continue;
+					volumes[i] /= unlocked_volume_sum;
+				}
 			}
+			ImGui::EndDisabled();
+			ImGui::PopItemWidth();
 		}
-		ImGui::EndDisabled();
-		ImGui::PopItemWidth();
-
 		return change;
 	}
 

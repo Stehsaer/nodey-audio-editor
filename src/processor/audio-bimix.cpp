@@ -337,7 +337,6 @@ namespace processor
 
 	bool Audio_bimix::draw_content(bool readonly)
 	{
-		imgui_utility::display_processor_description(get_processor_info().description, false);
 		ImGui::Separator();
 
 		if(ImGui::CollapsingHeader("properties", ImGuiTreeNodeFlags_DefaultOpen))
@@ -914,7 +913,6 @@ namespace processor
 
 	bool Audio_bimix_v2::draw_content(bool readonly)
 	{
-		imgui_utility::display_processor_description(get_processor_info().description,false);
 		ImGui::Separator();
 
 		if (ImGui::CollapsingHeader("properties", ImGuiTreeNodeFlags_DefaultOpen))

@@ -342,7 +342,6 @@ namespace processor
 	bool Audio_input::draw_content(bool readonly)
 	{
 		bool modified = false;
-		imgui_utility::display_processor_description(get_processor_info().description, false);
 		ImGui::Separator();
 
 		if (remove_index.has_value())
@@ -450,7 +449,6 @@ namespace processor
 		imgui_utility::shadowed_text("Audio Output");
 	}
 	bool Audio_output::draw_content(bool readonly){
-		imgui_utility::display_processor_description(get_processor_info().description, false);
 		ImGui::Separator();
 
 		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))

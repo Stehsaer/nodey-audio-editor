@@ -106,10 +106,7 @@ namespace processor
 
 	bool Velocity_modifier::draw_content(bool readonly)
 	{
-		imgui_utility::display_processor_description(
-			get_processor_info().description,
-			false
-		);
+		
 		ImGui::Separator();
 		if(ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
@@ -137,10 +134,6 @@ namespace processor
 
 	bool Pitch_modifier::draw_content(bool readonly)
 	{
-		imgui_utility::display_processor_description(
-			get_processor_info().description,
-			false
-		);
 		ImGui::Separator();
 		if(ImGui::CollapsingHeader("Properties",ImGuiTreeNodeFlags_DefaultOpen)){
 			ImGui::PushItemWidth(200);

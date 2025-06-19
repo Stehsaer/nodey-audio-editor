@@ -255,7 +255,6 @@ namespace processor
 
 	bool Audio_vol::draw_content(bool readonly)
 	{	
-		imgui_utility::display_processor_description(get_processor_info().description, false);
 		ImGui::Separator();
 		if(ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
