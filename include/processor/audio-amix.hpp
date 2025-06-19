@@ -33,9 +33,7 @@ namespace processor
 	// - 负责更改音频音量
 	class Audio_amix : public infra::Processor
 	{
-
 		int input_num = 2;
-		std::vector<infra::Processor::Pin_attribute> input_pins;
 		std::vector<float> volumes;
 		std::vector<bool> locks;
 
