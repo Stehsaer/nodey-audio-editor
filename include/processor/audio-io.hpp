@@ -86,6 +86,6 @@ namespace processor
 		virtual void deserialize(const Json::Value& value) {}
 
 		virtual void draw_title();
-		virtual bool draw_content(bool readonly) { return false; }
+		virtual bool draw_content(bool readonly);
 	};
 }

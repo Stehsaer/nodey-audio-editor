@@ -36,7 +36,15 @@ namespace processor
 			.identifier = "audio_volume_adjust",
 			.display_name = "Adjust Volume",
 			.singleton = false,
-			.generate = std::make_unique<Audio_vol>
+			.generate = std::make_unique<Audio_vol>,
+			.description = "Audio Volume Adjuster\n\n"
+				"## Functionality\n"
+				"- Adjusts the volume of audio streams by a specified factor\n"
+				"- Supports mono and stereo audio formats\n"
+				"- Outputs audio in 48kHz, 32-bit float format\n\n"
+				"## Usage\n"
+				"- Connect audio input streams to the 'Input' pin\n"
+				"- Set the desired volume adjustment factor using the slider",
 		};
 	}
 
@@ -246,23 +254,27 @@ namespace processor
 	}
 
 	bool Audio_vol::draw_content(bool readonly)
-	{
-		ImGui::BeginGroup();
-		ImGui::BeginDisabled(readonly);
+	{	
+		ImGui::Separator();
+		if(ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			ImGui::SetNextItemWidth(200);
-			ImGui::DragFloat(
-				"Volume",
-				&this->volume,
-				0.01,
-				0.0,
-				config::processor::audio_volume::max_volume,
-				"%.2f"
-			);
-			volume = std::clamp<float>(volume, 0, config::processor::audio_volume::max_volume);
+			ImGui::BeginGroup();
+			ImGui::BeginDisabled(readonly);
+			{
+				ImGui::SetNextItemWidth(200);
+				ImGui::DragFloat(
+					"Volume",
+					&this->volume,
+					0.01,
+					0.0,
+					config::processor::audio_volume::max_volume,
+					"%.2f"
+				);
+				volume = std::clamp<float>(volume, 0, config::processor::audio_volume::max_volume);
+			}
+			ImGui::EndDisabled();
+			ImGui::EndGroup();
 		}
-		ImGui::EndDisabled();
-		ImGui::EndGroup();
 
 		return false;
 	}

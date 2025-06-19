@@ -6,6 +6,7 @@
 
 #include "utility/anycast-utility.hpp"
 #include "utility/dialog-utility.hpp"
+#include "utility/imgui-utility.hpp"
 #include "utility/system.hpp"
 
 #include <imgui_stdlib.h>
@@ -251,6 +252,7 @@ void App::draw_side_panel()
 
 		const auto& selected_node = graph.nodes.at(selected_node_id);
 		ImGui::SeparatorText(selected_node.processor->get_processor_info_non_static().display_name.c_str());
+        imgui_utility::display_processor_description(selected_node.processor->get_processor_info_non_static().description, false);
 		if (selected_node.processor->draw_content(state != State::Editing))
 			graph.update_node_pin(selected_node_id);
 	}

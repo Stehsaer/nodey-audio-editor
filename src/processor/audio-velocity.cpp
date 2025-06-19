@@ -1,3 +1,4 @@
+#include <imgui.h>
 #ifdef _WIN32
 #define NOMINMAX
 #endif
@@ -17,7 +18,16 @@ namespace processor
 			.identifier = "velocity_modifier",
 			.display_name = "Velocity Modifier",
 			.singleton = false,
-			.generate = std::make_unique<Velocity_modifier>
+			.generate = std::make_unique<Velocity_modifier>,
+			.description = "Audio Velocity Modifier\n\n"
+				"## Functionality\n"
+				"- Adjusts the velocity of audio streams\n"
+				"- Supports pitch preservation with velocity adjustment\n"
+				"- Outputs audio in 48kHz, 32-bit float format\n\n"
+				"## Usage\n"
+				"- Connect audio input streams to the 'Input' pin\n"
+				"- Adjust the velocity multiplier using the slider\n"
+				"- Optionally preserve pitch while modifying velocity",
 		};
 	}
 
@@ -55,7 +65,14 @@ namespace processor
 			.identifier = "pitch_modifier",
 			.display_name = "Pitch Modifier",
 			.singleton = false,
-			.generate = std::make_unique<Pitch_modifier>
+			.generate = std::make_unique<Pitch_modifier>,
+			.description = "Audio Pitch Modifier\n\n"
+				"## Functionality\n"
+				"- Adjusts the pitch of audio streams by a specified note value\n"
+				"- Outputs audio in 48kHz, 32-bit float format\n\n"
+				"## Usage\n"
+				"- Connect audio input streams to the 'Input' pin\n"
+				"- Adjust the pitch value using the input field",
 		};
 	}
 
@@ -89,37 +106,44 @@ namespace processor
 
 	bool Velocity_modifier::draw_content(bool readonly)
 	{
-		ImGui::PushItemWidth(200);
-		ImGui::BeginDisabled(readonly);
+		
+		ImGui::Separator();
+		if(ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			ImGui::DragFloat(
-				"Velocity",
-				&velocity,
-				0.01,
-				0.5,
-				3.0,
-				"%.2fx",
-				ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic
-			);
+			ImGui::PushItemWidth(200);
+			ImGui::BeginDisabled(readonly);
+			{
+				ImGui::DragFloat(
+					"Velocity",
+					&velocity,
+					0.01,
+					0.5,
+					3.0,
+					"%.2fx",
+					ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic
+				);
 
-			ImGui::Checkbox("Keep Pitch", &keep_pitch);
+				ImGui::Checkbox("Keep Pitch", &keep_pitch);
+			}
+			ImGui::EndDisabled();
+			ImGui::PopItemWidth();
 		}
-		ImGui::EndDisabled();
-		ImGui::PopItemWidth();
-
+		
 		return false;
 	}
 
 	bool Pitch_modifier::draw_content(bool readonly)
 	{
-		ImGui::PushItemWidth(200);
-		ImGui::BeginDisabled(readonly);
-		{
-			ImGui::InputFloat("Pitch (Note)", &pitch, 0.5, 1.0, "%+.1f");
+		ImGui::Separator();
+		if(ImGui::CollapsingHeader("Properties",ImGuiTreeNodeFlags_DefaultOpen)){
+			ImGui::PushItemWidth(200);
+			ImGui::BeginDisabled(readonly);
+			{
+				ImGui::InputFloat("Pitch (Note)", &pitch, 0.5, 1.0, "%+.1f");
+			}
+			ImGui::EndDisabled();
+			ImGui::PopItemWidth();
 		}
-		ImGui::EndDisabled();
-		ImGui::PopItemWidth();
-
 		return false;
 	}
 

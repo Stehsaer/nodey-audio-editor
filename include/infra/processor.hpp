@@ -55,6 +55,7 @@ namespace infra
 			std::string display_name;  // 显示名称
 			bool singleton = false;    // 是否为单例处理器（每一个图中至多一个实例）
 			std::function<std::unique_ptr<Processor>()> generate;  // 生成处理器实例的函数
+			std::string description;                               // 描述信息
 		};
 
 		// 包含简述、解释和详细信息的运行时错误

@@ -2,7 +2,7 @@ add_rules("mode.debug", "mode.release")
 
 add_requires("imgui v1.91.9",			{system=false, configs={sdl2=true, sdl2_renderer=true, wchar32=true}})
 add_requires("jsoncpp 1.9.6",			{system=false})
-add_requires("libsdl2 2.32.2",			{system=false, configs={shared=false, sdl2_image=false, sdl2_mixer=true, sdl2_ttf=false}})
+add_requires("libsdl2 2.32.2",			{system=false, configs={shared=true, sdl2_image=false, sdl2_mixer=true, sdl2_ttf=false}})
 add_requires("ffmpeg 7.1",				{system=false, configs={shared=true, ffmpeg=false}})
 add_requires("boost 1.88.0",			{system=false, configs={cmake=false, fiber=true}})
 add_requires("fftw 3.3.10",				{system=false, configs={precision="float"}})

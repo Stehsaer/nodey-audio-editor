@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <boost/fiber/operations.hpp>
 #include <cstdlib>
+#include <imgui.h>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -26,7 +27,23 @@ namespace processor
 			.identifier = "audio_bimix",
 			.display_name = "Audio Bimix",
 			.singleton = false,
-			.generate = std::make_unique<Audio_bimix>
+			.generate = std::make_unique<Audio_bimix>,
+			.description= "Advanced Stereo Channel Mixer (V2)\n\n"
+			  "## Functionality\n"
+			  "- Enhanced stereo mixing with precise time alignment\n"
+			  "- Handles asynchronous left and right channel inputs\n"
+			  "- Advanced resampling with buffer management\n"
+			  "- Time-accurate channel synchronization\n"
+			  "- Bias control for channel balance adjustment\n\n"
+			  "## Output Format\n"
+			  "- Sample Rate: 48kHz (configurable)\n"
+			  "- Format: 32-bit Float Interleaved\n"
+			  "- Channels: Stereo (Left/Right)\n\n"
+			  "## Usage\n"
+			  "- Connect audio sources to 'Left' and 'Right' input pins\n"
+			  "- Adjust bias slider for channel balance (-1.0 to +1.0)\n"
+			  "- Supports different sample rates and formats on inputs\n"
+			  "- Automatically handles timing misalignment between channels\n\n"
 		};
 	}
 
@@ -320,15 +337,20 @@ namespace processor
 
 	bool Audio_bimix::draw_content(bool readonly)
 	{
-		ImGui::SetNextItemWidth(200);
-		ImGui::BeginGroup();
-		ImGui::BeginDisabled(readonly);
+		ImGui::Separator();
+
+		if(ImGui::CollapsingHeader("properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			ImGui::DragFloat("Bias", &this->bias, 0.005, -1.0, 1.0, "%.3f");
-			bias = std::clamp<float>(bias, -1, 1);
+			ImGui::SetNextItemWidth(200);
+			ImGui::BeginGroup();
+			ImGui::BeginDisabled(readonly);
+			{
+				ImGui::DragFloat("Bias", &this->bias, 0.005, -1.0, 1.0, "%.3f");
+				bias = std::clamp<float>(bias, -1, 1);
+			}
+			ImGui::EndDisabled();
+			ImGui::EndGroup();
 		}
-		ImGui::EndDisabled();
-		ImGui::EndGroup();
 
 		return false;
 	}
@@ -366,7 +388,23 @@ namespace processor
 			.identifier = "audio_bimix_v2",
 			.display_name = "Audio Bimix V2",
 			.singleton = false,
-			.generate = std::make_unique<Audio_bimix_v2>
+			.generate = std::make_unique<Audio_bimix_v2>,
+			.description = "Advanced Stereo Channel Mixer (V2)\n\n"
+						   "## Functionality\n"
+						   "- Enhanced stereo mixing with precise time alignment\n"
+						   "- Handles asynchronous left and right channel inputs\n"
+						   "- Advanced resampling with buffer management\n"
+						   "- Time-accurate channel synchronization\n"
+						   "- Bias control for channel balance adjustment\n\n"
+						   "## Output Format\n"
+						   "- Sample Rate: 48kHz (configurable)\n"
+						   "- Format: 32-bit Float Interleaved\n"
+						   "- Channels: Stereo (Left/Right)\n\n"
+						   "## Usage\n"
+						   "- Connect audio sources to 'Left' and 'Right' input pins\n"
+						   "- Adjust bias slider for channel balance (-1.0 to +1.0)\n"
+						   "- Supports different sample rates and formats on inputs\n"
+						   "- Automatically handles timing misalignment between channels\n\n"
 		};
 	}
 
@@ -875,15 +913,20 @@ namespace processor
 
 	bool Audio_bimix_v2::draw_content(bool readonly)
 	{
-		ImGui::SetNextItemWidth(200);
-		ImGui::BeginGroup();
-		ImGui::BeginDisabled(readonly);
+		ImGui::Separator();
+
+		if (ImGui::CollapsingHeader("properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			ImGui::DragFloat("Bias", &this->bias, 0.005, -1.0, 1.0, "%.3f");
-			bias = std::clamp<float>(bias, -1, 1);
+			ImGui::SetNextItemWidth(200);
+			ImGui::BeginGroup();
+			ImGui::BeginDisabled(readonly);
+			{
+				ImGui::DragFloat("Bias", &this->bias, 0.005, -1.0, 1.0, "%.3f");
+				bias = std::clamp<float>(bias, -1, 1);
+			}
+			ImGui::EndDisabled();
+			ImGui::EndGroup();
 		}
-		ImGui::EndDisabled();
-		ImGui::EndGroup();
 
 		return false;
 	}
