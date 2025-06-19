@@ -22,20 +22,7 @@
 namespace processor
 {
 
-	Audio_amix::Audio_amix()
-	{
-		input_pins.push_back(
-			{.identifier = "output",
-			 .display_name = "Output",
-			 .type = typeid(Audio_stream),
-			 .is_input = false,
-			 .generate_func =
-				 []
-			 {
-				 return std::make_shared<Audio_stream>();
-			 }}
-		);
-	};
+	Audio_amix::Audio_amix() = default;
 
 	infra::Processor::Info Audio_amix::get_processor_info()
 	{
@@ -49,7 +36,37 @@ namespace processor
 
 	std::vector<infra::Processor::Pin_attribute> Audio_amix::get_pin_attributes() const
 	{
-		return input_pins;
+		std::vector<infra::Processor::Pin_attribute> pins;
+		pins.reserve(input_num + 1);
+
+		pins.push_back(
+			{.identifier = "output",
+			 .display_name = "Output",
+			 .type = typeid(Audio_stream),
+			 .is_input = false,
+			 .generate_func =
+				 []
+			 {
+				 return std::make_shared<Audio_stream>();
+			 }}
+		);
+
+		for (int i = 0; i < input_num; i++)
+		{
+			pins.push_back(
+				{.identifier = std::format("input_{}", i + 1),
+				 .display_name = std::format("Input {}", i + 1),
+				 .type = typeid(Audio_stream),
+				 .is_input = true,
+				 .generate_func =
+					 []
+				 {
+					 return std::make_shared<Audio_stream>();
+				 }}
+			);
+		}
+
+		return pins;
 	}
 
 	void Audio_amix::process_payload(
@@ -304,45 +321,13 @@ namespace processor
 		ImGui::BeginDisabled(readonly);
 		{
 			if (ImGui::InputInt("Input Channels", &input_num, 1, 100, 0))
+			{
 				input_num = std::clamp(input_num, 1, 16);
-
-			if (input_pins.size() != input_num + 1) change = true;
-
-			int temp_size = input_pins.size() - 1;
-			while (input_num > input_pins.size() - 1)
-			{
-				input_pins.push_back(
-					{.identifier = std::format("input_{}", input_pins.size()),
-					 .display_name = std::format("Input {}", input_pins.size()),
-					 .type = typeid(Audio_stream),
-					 .is_input = true,
-					 .generate_func =
-						 []
-					 {
-						 return std::make_shared<Audio_stream>();
-					 }}
-				);
-				volumes.push_back(1.0f / input_num);
-				locks.push_back(false);
-			}
-			if (temp_size)
-				for (int i = 0; i < temp_size - 1; i++) volumes[i] *= (float)(temp_size) / (input_num);
-
-			float temp_volume = 0.0f;
-			while (input_num < input_pins.size() - 1)
-			{
-				input_pins.pop_back();
-
-				temp_volume += volumes.back();
-				volumes.pop_back();
-				input_pins.pop_back();
-				locks.pop_back();
+				change = true;
 			}
 
-			if (input_num > 1)
-				for (float& volume : volumes) volume *= 1.0f / (1.0f - temp_volume);
-			else if (input_num == 1)
-				volumes[0] = 1.0f;
+			volumes.resize(input_num, 1.0f);
+			locks.resize(input_num, false);
 
 			for (int i = 0; i < input_num; i++)
 			{
@@ -371,6 +356,16 @@ namespace processor
 				bool temp_lock = locks[i];
 				ImGui::Checkbox(std::format("Locked##locked_{}", i).c_str(), &temp_lock);
 				locks[i] = temp_lock;
+			}
+
+			float unlocked_volume_sum = 0.0f;
+			for (int i = 0; i < input_num; i++) unlocked_volume_sum += locks[i] ? 0.0f : volumes[i];
+			unlocked_volume_sum = std::max<float>(unlocked_volume_sum, 0.001f);
+
+			for (int i = 0; i < input_num; i++)
+			{
+				if (locks[i]) continue;
+				volumes[i] /= unlocked_volume_sum;
 			}
 		}
 		ImGui::EndDisabled();
@@ -402,31 +397,8 @@ namespace processor
 		input_num = value["input_num"].asInt();
 		locks.clear();
 		volumes.clear();
-		input_pins.clear();
-		input_pins.push_back(
-			{.identifier = "output",
-			 .display_name = "Output",
-			 .type = typeid(Audio_stream),
-			 .is_input = false,
-			 .generate_func =
-				 []
-			 {
-				 return std::make_shared<Audio_stream>();
-			 }}
-		);
 		for (int i = 0; i < input_num; i++)
 		{
-			input_pins.push_back(
-				{.identifier = std::format("input_{}", i + 1),
-				 .display_name = std::format("Input_{}", i + 1),
-				 .type = typeid(Audio_stream),
-				 .is_input = true,
-				 .generate_func =
-					 []
-				 {
-					 return std::make_shared<Audio_stream>();
-				 }}
-			);
 			volumes.push_back(value[std::format("volumes{}", i)].asFloat());
 			locks.push_back(value[std::format("locks{}", i)].asBool());
 		}
