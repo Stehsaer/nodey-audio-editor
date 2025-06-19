@@ -263,9 +263,9 @@ namespace processor
 
 		bool input_stream_eof = false;
 
-		const float time_ratio = 1.0f / velocity;
+		const double time_ratio = 1.0f / velocity;
 		int channel_count, sample_rate;
-		double pts_begin = 0.0;  // 记录当前帧的时间
+		double time_seconds = 0.0;  // 记录当前帧的时间
 
 		auto acquire_func = [&](int count)
 		{
@@ -280,14 +280,16 @@ namespace processor
 					std::format("Received {} samples, expected at least {}", samples_read, count)
 				);
 
+			output_samples.resize(samples_read * channel_count);
+
 			std::shared_ptr<Audio_frame> new_frame = construct_audio_frame_float(
 				output_samples,
 				sample_rate,
 				channel_count,
-				pts_begin + soundtouch->numSamples() * 1000000.0f / sample_rate
+				time_seconds * 1000000
 			);
 
-			pts_begin += static_cast<float>(samples_read) * 1000000.0f / sample_rate;
+			time_seconds += double(samples_read) / sample_rate;
 
 			for (auto& stream : output_stream)
 			{
@@ -359,7 +361,7 @@ namespace processor
 						soundtouch->setPitch(pitch);
 
 						channel_count = frame->ch_layout.nb_channels;
-						pts_begin = frame->pts * av_q2d(frame->time_base);
+						time_seconds = frame->pts * av_q2d(frame->time_base);
 						sample_rate = frame->sample_rate;
 					}
 

@@ -20,5 +20,6 @@ namespace infra
 		Processor::register_processor<processor::Pitch_modifier>();
 		Processor::register_processor<processor::Audio_amix>();
 		Processor::register_processor<processor::Audio_bimix>();
+		Processor::register_processor<processor::Audio_bimix_v2>();
 	}
 }

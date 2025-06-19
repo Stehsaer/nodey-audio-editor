@@ -4,7 +4,9 @@
 #include "libavutil/channel_layout.h"
 #include "libavutil/samplefmt.h"
 #include "utility/free-utility.hpp"
+#include "utility/sw-resample.hpp"
 
+#include <algorithm>
 #include <boost/fiber/operations.hpp>
 #include <cstdlib>
 #include <iostream>
@@ -358,4 +360,531 @@ namespace processor
 		bias = std::clamp<float>(bias, -1, 1);
 	}
 
+	infra::Processor::Info Audio_bimix_v2::get_processor_info()
+	{
+		return infra::Processor::Info{
+			.identifier = "audio_bimix_v2",
+			.display_name = "Audio Bimix V2",
+			.singleton = false,
+			.generate = std::make_unique<Audio_bimix_v2>
+		};
+	}
+
+	std::vector<infra::Processor::Pin_attribute> Audio_bimix_v2::get_pin_attributes() const
+	{
+
+		return std::vector<infra::Processor::Pin_attribute>{
+			{.identifier = "output",
+			 .display_name = "Output",
+			 .type = typeid(Audio_stream),
+			 .is_input = false,
+			 .generate_func =
+				 []
+			 {
+				 return std::make_shared<Audio_stream>();
+			 }},
+			{.identifier = "input_l",
+			 .display_name = "Left",
+			 .type = typeid(Audio_stream),
+			 .is_input = true,
+			 .generate_func =
+				 []
+			 {
+				 return std::make_shared<Audio_stream>();
+			 }},
+			{.identifier = "input_r",
+			 .display_name = "Right",
+			 .type = typeid(Audio_stream),
+			 .is_input = true,
+			 .generate_func = []
+			 {
+				 return std::make_shared<Audio_stream>();
+			 }}
+		};
+	}
+
+	Json::Value Audio_bimix_v2::serialize() const
+	{
+		Json::Value value;
+		value["bias"] = bias;
+		return value;
+	}
+
+	void Audio_bimix_v2::deserialize(const Json::Value& value)
+	{
+		if (!value.isMember("bias"))
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: bias"
+			);
+
+		if (!value["bias"].isDouble())
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: bias"
+			);
+
+		bias = value["bias"].asDouble();
+		bias = std::clamp<float>(bias, -1, 1);
+	}
+
+	static std::shared_ptr<Audio_frame> make_audio_frame_flt_interleaved(
+		std::span<float> samples,
+		double time_seconds
+	)
+	{
+		auto frame = std::make_shared<Audio_frame>();
+		auto* data = frame->data();
+
+		data->nb_samples = samples.size() / 2;
+		data->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
+		data->sample_rate = config::processor::audio_bimix::std_sample_rate;
+		data->format = AV_SAMPLE_FMT_FLT;
+
+		data->pts = time_seconds * 1000000;
+		data->time_base = {.num = 1, .den = 1000000};
+
+		av_frame_get_buffer(data, 32);
+		av_frame_make_writable(data);
+
+		std::ranges::copy(samples, reinterpret_cast<float*>(data->data[0]));
+
+		return frame;
+	}
+
+	void Audio_bimix_v2::process_payload(
+		const std::map<std::string, std::shared_ptr<infra::Processor::Product>>& input,
+		const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
+		const std::atomic<bool>& stop_token,
+		std::any& user_data
+	)
+	{
+		auto input_item_optional_l = get_input_item<Audio_stream>(input, "input_l");
+		auto input_item_optional_r = get_input_item<Audio_stream>(input, "input_r");
+
+		if (!input_item_optional_l.has_value() || !input_item_optional_r.has_value())
+			throw Runtime_error(
+				"Audio Channel mix processor has no input",
+				"Audio channel mix processor requires an audio stream input to function properly.",
+				"Input item 'input' not found"
+			);
+
+		auto& input_stream_l = input_item_optional_l.value().get();
+		auto& input_stream_r = input_item_optional_r.value().get();
+		auto output_stream = get_output_item<Audio_stream>(output, "output");
+
+		auto push_frame = [&stop_token, &output_stream](const std::shared_ptr<Audio_frame>& frame)
+		{
+			for (auto& channel : output_stream)
+			{
+				if (stop_token) return;
+
+				while (channel->try_push(frame) != boost::fibers::channel_op_status::success)
+				{
+					if (stop_token) return;
+					boost::this_fiber::yield();
+				}
+			}
+		};
+
+		constexpr auto target_sample_rate = config::processor::audio_bimix::std_sample_rate;
+
+		// 单帧，只记录单声道
+		struct Frame
+		{
+			std::vector<float> samples;
+			double time_seconds = 0.0;
+
+			double elapsed_seconds() const { return double(samples.size()) / target_sample_rate; }
+			double end_time() const { return time_seconds + elapsed_seconds(); }
+			void drop_samples(size_t count)
+			{
+				assert(count <= samples.size());
+				samples.erase(samples.begin(), samples.begin() + count);
+				time_seconds += double(count) / target_sample_rate;
+			}
+		};
+
+		std::list<Frame> frames_l, frames_r;                        // 左右声道的帧链表
+		std::unique_ptr<Audio_resampler> resampler_l, resampler_r;  // 重采样器
+		double time_l, time_r;                                      //  左右声道的时间戳
+		bool eof_l = false, eof_r = false;                          // 左右声道的结束标志
+
+		std::vector<float> shared_buffer[2];  // 暂存重采样器的结果
+		std::vector<float> frame_samples;     // 生成新帧时的样本缓冲区
+
+		while (!stop_token)
+		{
+			/* 获取左声道帧 */
+			if (!eof_l)
+			{
+				const auto pop_result_l = input_stream_l.try_pop();
+				if (!pop_result_l.has_value())
+				{
+					if (pop_result_l.error() == boost::fibers::channel_op_status::empty)
+						if (input_stream_l.eof()) eof_l = true;
+					if (pop_result_l.error() == boost::fibers::channel_op_status::closed)
+						THROW_LOGIC_ERROR("Unexpected channel closed in Audio_output::process_payload");
+				}
+				else  //  成功获取新的帧，传递给重采样器
+				{
+					const auto& data = *pop_result_l.value()->data();
+
+					if (data.ch_layout.nb_channels != 2 && data.ch_layout.nb_channels != 1)
+						throw Runtime_error(
+							"Invalid audio channel layout",
+							"Audio channel layout must be stereo or mono.",
+							std::format("Invalid channel layout: {}", data.ch_layout.nb_channels)
+						);
+
+					// 创建新的重采样器
+					if (resampler_l == nullptr)
+					{
+						const AVChannelLayout input_layout = data.ch_layout.nb_channels == 2
+															   ? AVChannelLayout(AV_CHANNEL_LAYOUT_STEREO)
+															   : AVChannelLayout(AV_CHANNEL_LAYOUT_MONO);
+
+						const Audio_resampler::Format input_format{
+							.format = (AVSampleFormat)data.format,
+							.sample_rate = data.sample_rate,
+							.channel_layout = input_layout,
+						};
+
+						const Audio_resampler::Format output_format{
+							.format = AV_SAMPLE_FMT_FLTP,
+							.sample_rate = target_sample_rate,
+							.channel_layout = AV_CHANNEL_LAYOUT_STEREO,
+						};
+
+						auto create_result = Audio_resampler::create(input_format, output_format);
+						if (!create_result.has_value())
+							throw Runtime_error(
+								"Failed to create audio resampler",
+								"Cannot start the audio resampling process. Internal error may have occurred."
+							);
+
+						resampler_l = std::move(create_result.value());
+						time_l = data.pts * av_q2d(data.time_base);
+					}
+
+					/* 重采样并放到缓冲区 */
+
+					shared_buffer[0].resize(data.nb_samples * 2);
+					shared_buffer[1].resize(data.nb_samples * 2);
+
+					float* shared_buffer_ptr[2] = {shared_buffer[0].data(), shared_buffer[1].data()};
+
+					const int resampled_count = resampler_l->resample<float, float>(
+						std::span((const float* const*)data.data, data.ch_layout.nb_channels),
+						data.nb_samples,
+						std::span<float*>(shared_buffer_ptr, 2),
+						shared_buffer[0].size()
+					);
+
+					if (resampled_count < 0)
+					{
+						char err_str[256];
+						av_make_error_string(err_str, sizeof(err_str), resampled_count);
+
+						throw Runtime_error(
+							"Failed to resample audio",
+							"Cannot resample audio data. Internal error may have occurred.",
+							std::format("swr_convert() returned error {}", err_str)
+						);
+					}
+
+					time_l += double(resampled_count) / target_sample_rate;
+
+					Frame new_frame;
+					new_frame.time_seconds = time_l;
+					new_frame.samples.resize(resampled_count);
+
+					// 混合左右声道
+					for (auto [dst, left, right] :
+						 std::views::zip(new_frame.samples, shared_buffer[0], shared_buffer[1]))
+						dst = (left + right) * 0.5;
+
+					frames_l.emplace_back(std::move(new_frame));
+				}
+			}
+
+			/* 获取右声道帧 */
+			if (!eof_r)
+			{
+				const auto pop_result_r = input_stream_r.try_pop();
+				if (!pop_result_r.has_value())
+				{
+					if (pop_result_r.error() == boost::fibers::channel_op_status::empty)
+						if (input_stream_r.eof()) eof_r = true;
+					if (pop_result_r.error() == boost::fibers::channel_op_status::closed)
+						THROW_LOGIC_ERROR("Unexpected channel closed in Audio_output::process_payload");
+				}
+				else  //  成功获取新的帧，传递给重采样器
+				{
+					const auto& data = *pop_result_r.value()->data();
+
+					if (data.ch_layout.nb_channels != 2 && data.ch_layout.nb_channels != 1)
+						throw Runtime_error(
+							"Invalid audio channel layout",
+							"Audio channel layout must be stereo or mono.",
+							std::format("Invalid channel layout: {}", data.ch_layout.nb_channels)
+						);
+
+					// 创建新的重采样器
+					if (resampler_r == nullptr)
+					{
+						const AVChannelLayout input_layout = data.ch_layout.nb_channels == 2
+															   ? AVChannelLayout(AV_CHANNEL_LAYOUT_STEREO)
+															   : AVChannelLayout(AV_CHANNEL_LAYOUT_MONO);
+
+						const Audio_resampler::Format input_format{
+							.format = (AVSampleFormat)data.format,
+							.sample_rate = data.sample_rate,
+							.channel_layout = input_layout,
+						};
+
+						const Audio_resampler::Format output_format{
+							.format = AV_SAMPLE_FMT_FLTP,
+							.sample_rate = target_sample_rate,
+							.channel_layout = AV_CHANNEL_LAYOUT_STEREO,
+						};
+
+						auto create_result = Audio_resampler::create(input_format, output_format);
+						if (!create_result.has_value())
+							throw Runtime_error(
+								"Failed to create audio resampler",
+								"Cannot start the audio resampling process. Internal error may have occurred."
+							);
+
+						resampler_r = std::move(create_result.value());
+						time_r = data.pts * av_q2d(data.time_base);
+					}
+
+					/* 重采样并放到缓冲区 */
+
+					shared_buffer[0].resize(data.nb_samples * 2);
+					shared_buffer[1].resize(data.nb_samples * 2);
+
+					float* const shared_buffer_ptr[2] = {shared_buffer[0].data(), shared_buffer[1].data()};
+
+					const int resampled_count = resampler_r->resample(
+						std::span((const float* const*)data.data, data.ch_layout.nb_channels),
+						data.nb_samples,
+						std::span<float* const>(shared_buffer_ptr, 2),
+						data.nb_samples * 2
+					);
+
+					if (resampled_count < 0)
+					{
+						char err_str[256];
+						av_make_error_string(err_str, sizeof(err_str), resampled_count);
+
+						throw Runtime_error(
+							"Failed to resample audio",
+							"Cannot resample audio data. Internal error may have occurred.",
+							std::format("swr_convert() returned error {}", err_str)
+						);
+					}
+
+					time_r += double(resampled_count) / target_sample_rate;
+
+					Frame new_frame;
+					new_frame.time_seconds = time_r;
+					new_frame.samples.resize(resampled_count);
+
+					// 混合左右声道
+					for (auto [dst, left, right] :
+						 std::views::zip(new_frame.samples, shared_buffer[0], shared_buffer[1]))
+						dst = (left + right) * 0.5;
+
+					frames_r.emplace_back(std::move(new_frame));
+				}
+			}
+
+			/* 生成新帧 */
+			{
+				// 转换完成
+				if (frames_l.empty() && frames_r.empty() && eof_l && eof_r) break;
+
+				// 右声道已经结束
+				if (frames_r.empty() && eof_r)
+				{
+					const auto frame_lengths
+						= frames_l | std::views::transform([](const Frame& f) { return f.samples.size(); });
+
+					const size_t remaining_samples
+						= std::accumulate(frame_lengths.begin(), frame_lengths.end(), 0zu);
+
+					std::vector<float> remaining_samples_buffer(remaining_samples * 2);
+					auto begin = remaining_samples_buffer.begin();
+					for (auto& frame : frames_l)
+						for (float sample : frame.samples)
+						{
+							*begin++ = 0;
+							*begin++ = sample;
+						}
+
+					push_frame(make_audio_frame_flt_interleaved(
+						std::span(remaining_samples_buffer),
+						frames_l.front().time_seconds
+					));
+
+					break;
+				}
+
+				// 左声道已经结束
+				if (frames_l.empty() && eof_l)
+				{
+					const auto frame_lengths
+						= frames_r | std::views::transform([](const Frame& f) { return f.samples.size(); });
+
+					const size_t remaining_samples
+						= std::accumulate(frame_lengths.begin(), frame_lengths.end(), 0zu);
+
+					std::vector<float> remaining_samples_buffer(remaining_samples * 2);
+					auto begin = remaining_samples_buffer.begin();
+					for (auto& frame : frames_r)
+						for (float sample : frame.samples)
+						{
+							*begin++ = 0;
+							*begin++ = sample;
+						}
+
+					push_frame(make_audio_frame_flt_interleaved(
+						std::span(remaining_samples_buffer),
+						frames_r.front().time_seconds
+					));
+
+					break;
+				}
+
+				while (!frames_l.empty() && !frames_r.empty() && !stop_token)
+				{
+					const bool left_eariler
+						= frames_l.front().time_seconds < frames_r.front().time_seconds;  // 左声道更早
+
+					// 流对应的偏移（偏移0为左声道，偏移1为右声道）
+					const size_t eariler_offset = left_eariler ? 0 : 1;
+					const size_t later_offset = left_eariler ? 1 : 0;
+					const float eariler_bias = left_eariler ? (1 - bias) / 2 : (1 + bias) / 2;
+					const float later_bias = left_eariler ? (1 + bias) / 2 : (1 - bias) / 2;
+
+					auto& eariler_stream = left_eariler ? frames_l : frames_r;
+					auto& later_stream = left_eariler ? frames_r : frames_l;
+
+					const double eariler_begin_time = eariler_stream.front().time_seconds;
+					const double later_begin_time = later_stream.front().time_seconds;
+					const double eariler_end_time = eariler_stream.front().end_time();
+					const double later_end_time = later_stream.front().end_time();
+
+					if (eariler_end_time <= later_begin_time)
+					{
+						frame_samples.clear();
+						frame_samples.resize(eariler_stream.front().samples.size() * 2);
+
+						for (size_t i = 0; i < eariler_stream.front().samples.size(); i++)
+						{
+							frame_samples[i * 2 + eariler_offset]
+								= eariler_stream.front().samples[i] * eariler_bias;
+							frame_samples[i * 2 + later_offset] = 0;
+						}
+
+						push_frame(
+							make_audio_frame_flt_interleaved(std::span(frame_samples), eariler_begin_time)
+						);
+
+						eariler_stream.pop_front();
+						continue;
+					}
+
+					// 本次帧生成的结束时间点
+					const double frame_end_time = std::min(eariler_end_time, later_end_time);
+
+					// 未对齐的样本数量，需要填0
+					const auto unaligned_samples = static_cast<size_t>(
+						std::round((later_begin_time - eariler_begin_time) * target_sample_rate)
+					);
+
+					// 对齐的样本数量，两个分别填入对应声道
+					auto aligned_samples = static_cast<size_t>(
+						std::round((frame_end_time - later_begin_time) * target_sample_rate)
+					);
+
+					// 防止浮点误差，可能会舍弃一两个样本，无伤大雅
+					aligned_samples = std::min(
+						aligned_samples,
+						eariler_stream.front().samples.size() - unaligned_samples
+					);
+					aligned_samples = std::min(aligned_samples, later_stream.front().samples.size());
+
+					frame_samples.clear();
+					frame_samples.resize((unaligned_samples + aligned_samples) * 2);
+
+					// 填入未对齐的样本
+					for (size_t i = 0; i < unaligned_samples; i++)
+					{
+						frame_samples[i * 2 + eariler_offset]
+							= eariler_stream.front().samples[i] * eariler_bias;
+						frame_samples[i * 2 + later_offset] = 0;
+					}
+
+					// 填入对齐样本
+					for (size_t i = 0; i < aligned_samples; i++)
+					{
+						frame_samples[(i + unaligned_samples) * 2 + eariler_offset]
+							= eariler_stream.front().samples[i + unaligned_samples] * eariler_bias;
+						frame_samples[(i + unaligned_samples) * 2 + later_offset]
+							= later_stream.front().samples[i] * later_bias;
+					}
+
+					// 根据结束情况移除对应帧
+					if (eariler_end_time <= later_end_time)
+					{
+						eariler_stream.pop_front();
+						later_stream.front().drop_samples(aligned_samples);
+					}
+					else
+					{
+						later_stream.pop_front();
+						eariler_stream.front().drop_samples(unaligned_samples + aligned_samples);
+					}
+
+					// 判断是否需要移除空帧
+					if (!eariler_stream.empty() && eariler_stream.front().samples.empty())
+						eariler_stream.pop_front();
+					if (!later_stream.empty() && later_stream.front().samples.empty())
+						later_stream.pop_front();
+
+					push_frame(make_audio_frame_flt_interleaved(std::span(frame_samples), eariler_begin_time)
+					);
+				}
+			}
+
+			boost::this_fiber::yield();
+		}
+
+		for (auto& stream : output_stream) stream->set_eof();
+	}
+
+	void Audio_bimix_v2::draw_title()
+	{
+		imgui_utility::shadowed_text("Audio Bimixer V2");
+	}
+
+	bool Audio_bimix_v2::draw_content(bool readonly)
+	{
+		ImGui::SetNextItemWidth(200);
+		ImGui::BeginGroup();
+		ImGui::BeginDisabled(readonly);
+		{
+			ImGui::DragFloat("Bias", &this->bias, 0.005, -1.0, 1.0, "%.3f");
+			bias = std::clamp<float>(bias, -1, 1);
+		}
+		ImGui::EndDisabled();
+		ImGui::EndGroup();
+
+		return false;
+	}
 }

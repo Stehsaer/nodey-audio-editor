@@ -65,4 +65,37 @@ namespace processor
 		virtual bool draw_content(bool readonly);
 	};
 
+	class Audio_bimix_v2 : public infra::Processor
+	{
+		float bias = 0.0f;
+		int buf_max_num = 16;
+
+	  public:
+
+		Audio_bimix_v2() = default;
+		virtual ~Audio_bimix_v2() = default;
+
+		Audio_bimix_v2(const Audio_bimix_v2&) = delete;
+		Audio_bimix_v2(Audio_bimix_v2&&) = default;
+		Audio_bimix_v2& operator=(const Audio_bimix_v2&) = delete;
+		Audio_bimix_v2& operator=(Audio_bimix_v2&&) = default;
+
+		static infra::Processor::Info get_processor_info();
+		virtual Processor::Info get_processor_info_non_static() const { return get_processor_info(); }
+
+		virtual std::vector<infra::Processor::Pin_attribute> get_pin_attributes() const;
+
+		void process_payload(
+			const std::map<std::string, std::shared_ptr<infra::Processor::Product>>& input,
+			const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
+			const std::atomic<bool>& stop_token,
+			std::any& user_data
+		);
+
+		virtual Json::Value serialize() const;
+		virtual void deserialize(const Json::Value& value);
+
+		virtual void draw_title();
+		virtual bool draw_content(bool readonly);
+	};
 }
