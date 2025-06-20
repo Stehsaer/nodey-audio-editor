@@ -165,6 +165,11 @@ void App::draw_menubar_file()
 		if (ImGui::MenuItem("New", "Ctrl+N")) new_project_async();
 		if (ImGui::MenuItem("Open", "Ctrl+O")) open_project();
 		if (ImGui::MenuItem("Save", "Ctrl+S")) save_project();
+
+		ImGui::Separator();
+
+		if (ImGui::MenuItem("Export")) state = State::Export_requested;
+
 		ImGui::Separator();
 
 		if (ImGui::MenuItem("Exit", "Ctrl+Q"))
@@ -252,7 +257,10 @@ void App::draw_side_panel()
 
 		const auto& selected_node = graph.nodes.at(selected_node_id);
 		ImGui::SeparatorText(selected_node.processor->get_processor_info_non_static().display_name.c_str());
-        imgui_utility::display_processor_description(selected_node.processor->get_processor_info_non_static().description, false);
+		imgui_utility::display_processor_description(
+			selected_node.processor->get_processor_info_non_static().description,
+			false
+		);
 		if (selected_node.processor->draw_content(state != State::Editing))
 			graph.update_node_pin(selected_node_id);
 	}
@@ -294,6 +302,13 @@ void App::draw_toolbar()
 
 		if (ImGui::BeginItemTooltip()) ImGui::Text("Stop Preview"), ImGui::EndTooltip();
 	}
+	else
+	{
+		ImGui::BeginDisabled(true);
+		ImGui::Button(ICON_PLAY "##toolbar-play", {area_width, area_width});
+		if (ImGui::BeginItemTooltip()) ImGui::Text("Start Preview"), ImGui::EndTooltip();
+		ImGui::EndDisabled();
+	}
 	ImGui::EndDisabled();
 
 	ImGui::Separator();
@@ -322,6 +337,13 @@ void App::draw_toolbar()
 	ImGui::BeginDisabled(copied_graph_json.empty() || state != State::Editing);
 	if (ImGui::Button(ICON_PASTE "##toolbar-paste", {area_width, area_width})) paste_nodes();
 	if (ImGui::BeginItemTooltip()) ImGui::Text("Paste"), ImGui::EndTooltip();
+	ImGui::EndDisabled();
+
+	// 导出按钮
+	ImGui::BeginDisabled(state != State::Editing);
+	if (ImGui::Button(ICON_EXPORT "##toolbar-export", {area_width, area_width}))
+		state = State::Export_requested;
+	if (ImGui::BeginItemTooltip()) ImGui::Text("Export Audio"), ImGui::EndTooltip();
 	ImGui::EndDisabled();
 }
 
@@ -563,6 +585,100 @@ std::future<App::New_project_window_result> App::add_new_project_confirm_window_
 	);
 
 	return future;
+}
+
+void App::show_export_window()
+{
+	class Export_window
+	{
+		App& app;
+		size_t kbps = 320;  // 默认比特率为128kbps
+		std::string export_file_path;
+		std::shared_ptr<std::atomic<double>> time;
+
+	  public:
+
+		Export_window(App& app) :
+			app(app)
+		{
+		}
+
+		bool operator()(bool close_button_pressed)
+		{
+			static constexpr auto kbps_presets = std::to_array<size_t>({64, 96, 128, 160, 192, 256, 320});
+
+			if (app.state == State::Exporting)
+			{
+				const auto done_time = time->load();
+
+				ImGui::Text(
+					"%dm%ds done",
+					static_cast<int>(std::floor(done_time / 60)),
+					static_cast<int>(std::fmod(done_time, 60.0))
+				);
+
+				ImGui::ProgressBar(-1.0f * (float)ImGui::GetTime(), {200 * runtime_config::ui_scale, 0});
+				return false;
+			}
+
+			if (app.state == State::Editing)
+			{
+				return true;
+			}
+
+			if (app.state != State::Export_window)
+				THROW_LOGIC_ERROR("App state is not Export_window, but {}", (int)app.state.load());
+
+			ImGui::PushItemWidth(250 * runtime_config::ui_scale);
+			{
+				if (ImGui::Button("Browse " ICON_EXT_LINK))
+				{
+					const auto path = save_file_dialog("Export Audio", {"Audio File", "*.mp3"}, ".");
+					if (path.has_value()) export_file_path = path.value();
+				}
+
+				ImGui::SameLine();
+				ImGui::Text(
+					"%s",
+					export_file_path.length() > 50
+						? std::format("{}...", export_file_path.substr(0, 50)).c_str()
+						: export_file_path.c_str()
+				);
+
+				// 比特率选择
+				if (ImGui::BeginCombo("Bitrate", std::format("{} kbps", kbps).c_str()))
+				{
+					for (const auto& preset : kbps_presets)
+					{
+						const bool is_selected = (preset == kbps);
+						if (ImGui::Selectable(std::format("{} kbps", preset).c_str(), is_selected))
+							kbps = preset;
+						if (is_selected) ImGui::SetItemDefaultFocus();
+					}
+
+					ImGui::EndCombo();
+				}
+
+				if (ImGui::Button("Export"))
+				{
+					time = app.create_export_runner(export_file_path, kbps);
+				}
+			}
+			ImGui::PopItemWidth();
+
+			if (close_button_pressed) app.state = App::State::Editing;
+
+			return close_button_pressed;
+		}
+	};
+
+	popup_manager.open_window(
+		{.title = ICON_EXPORT " Export Audio",
+		 .flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove,
+		 .has_close_button = true,
+		 .keep_centered = true,
+		 .render_func = Export_window(*this)}
+	);
 }
 
 // =============================================================================
@@ -1158,7 +1274,7 @@ void App::paste_nodes()
 			new_position.x += position_offset.x;
 			new_position.y += position_offset.y;
 
-			ImNodes::SetNodeScreenSpacePos(new_node_id, new_position);
+			ImNodes::SetNodeGridSpacePos(new_node_id, new_position);
 			graph.nodes[new_node_id].position = new_position;
 
 			node_id_mapping[temp_node_id] = new_node_id;
@@ -1508,7 +1624,7 @@ void App::draw_node_editor()
 	//保存节点位置
 	for (auto& [id, item] : graph.nodes)
 	{
-		const auto new_position = ImNodes::GetNodeGridSpacePos(id);
+		const auto new_position = ImNodes::GetNodeEditorSpacePos(id);
 		item.position = new_position;
 	}
 
@@ -1840,6 +1956,42 @@ void App::poll_state()
 		break;
 	}
 
+	case State::Export_requested:
+	{
+		if (runner != nullptr) THROW_LOGIC_ERROR("Unexpected state: Export_requested when runner is running");
+		state = State::Export_window;
+		show_export_window();
+		break;
+	}
+
+	case State::Exporting:
+	{
+		if (runner == nullptr) THROW_LOGIC_ERROR("Unexpected state: Exporting when runner is not running");
+
+		auto& processor_resources = runner->get_processor_resources();
+		size_t finished_count = 0;
+
+		for (auto& [_, resource] : processor_resources)
+		{
+			if (resource->state == infra::Runner::State::Error)
+			{
+				show_export_runner_error(resource->exception);
+				runner.reset();
+				state = State::Editing;
+				break;
+			}
+
+			finished_count += resource->state == infra::Runner::State::Finished ? 1 : 0;
+		}
+
+		if (finished_count == processor_resources.size())
+		{
+			runner.reset();
+			state = State::Editing;
+		}
+		break;
+	}
+
 	default:
 		break;
 	}
@@ -1865,9 +2017,10 @@ void App::create_preview_runner()
 		const auto processor_info = node.processor->get_processor_info_non_static();
 
 		if (processor_info.identifier == config::logic::audio_output_node_name)
-			node_data[idx] = std::make_shared<std::any>(
-				processor::Audio_output::Process_context{.audio_device = sdl_context.get_audio_device()}
-			);
+			node_data[idx] = std::make_shared<std::any>(processor::Audio_output::Process_context{
+				.do_export = false,
+				.audio_device = sdl_context.get_audio_device()
+			});
 	}
 
 	try
@@ -1884,6 +2037,60 @@ void App::create_preview_runner()
 		);
 		state = State::Editing;
 	}
+}
+
+std::shared_ptr<std::atomic<double>> App::create_export_runner(
+	const std::string& export_file_path,
+	size_t kbps
+)
+{
+	if (graph.nodes.empty())
+	{
+		add_error_popup_window(
+			"Failed to launch export",
+			"There's no node in the graph. Add some nodes to start previewing."
+		);
+		state = State::Editing;
+		return nullptr;
+	}
+
+	std::map<infra::Id_t, std::shared_ptr<std::any>> node_data;
+
+	std::shared_ptr<std::atomic<double>> progress;
+
+	for (auto& [idx, node] : graph.nodes)
+	{
+		const auto processor_info = node.processor->get_processor_info_non_static();
+
+		if (processor_info.identifier == config::logic::audio_output_node_name)
+		{
+			const auto context = processor::Audio_output::Process_context{
+				.do_export = true,
+				.export_path = export_file_path,
+				.kbps = kbps
+			};
+
+			node_data[idx] = std::make_shared<std::any>(context);
+			progress = context.time;
+		}
+	}
+
+	try
+	{
+		state = State::Exporting;
+		runner = infra::Runner::create_and_run(graph, std::move(node_data));
+	}
+	catch (const std::runtime_error& e)
+	{
+		add_error_popup_window(
+			"Failed to launch export process",
+			"Error occured during export process launching, see detail for more info",
+			e.what()
+		);
+		state = State::Editing;
+	}
+
+	return progress;
 }
 
 // 显示预览运行器错误
@@ -1912,6 +2119,33 @@ void App::show_preview_runner_error(const std::any& error)
 	}
 
 	add_error_popup_window("Unknown exception raised during preview");
+}
+
+void App::show_export_runner_error(const std::any& error)
+{
+	const auto runtime_error = try_anycast<infra::Processor::Runtime_error>(error);
+	if (runtime_error.has_value())
+	{
+		add_error_popup_window(
+			std::format("Runtime error raised during export: {}", runtime_error->message),
+			runtime_error->explanation,
+			runtime_error->detail
+		);
+		return;
+	}
+
+	const auto logic_error = try_anycast<std::logic_error>(error);
+	if (logic_error.has_value())
+	{
+		add_error_popup_window(
+			"Unexpected logic error during export",
+			"An internal logic error occured. It's most likely to be a bug",
+			logic_error.value().what()
+		);
+		return;
+	}
+
+	add_error_popup_window("Unknown exception raised during export");
 }
 
 // 退出确认弹窗

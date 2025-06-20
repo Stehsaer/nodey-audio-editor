@@ -61,7 +61,9 @@ class App
 		Preview_requested,   // 请求开始预览
 		Previewing,          // 正在运行预览
 		Preview_cancelling,  // 请求停止预览
-		IO                   // 输入输出操作中（如保存、打开项目等）
+		Export_requested,    // 请求导出音频
+		Export_window,       // 正在选择导出参数
+		Exporting,           // 正在导出音频
 	};
 
 	// =============================================================================
@@ -138,9 +140,7 @@ class App
 		const std::string& json_content
 	);  // 打开文件确认对话框
 
-	// // 设置对话框
-	// void show_app_settings();          // 显示app设置对话框
-	// void draw_grid_settings_dialog();  // 绘制网格设置对话框
+	void show_export_window();
 
 	// =============================================================================
 	// 项目管理
@@ -227,9 +227,17 @@ class App
 	// =============================================================================
 
 	// 状态轮询和预览
-	void poll_state();                                      // 轮询应用程序状态，处理状态转换
-	void create_preview_runner();                           // 创建音频预览运行器
+	void poll_state();             // 轮询应用程序状态，处理状态转换
+	void create_preview_runner();  // 创建音频预览运行器
+
+	// 创建音频导出运行器
+	// - 返回一个共享指针，指向一个原子双精度浮点数，用于跟踪导出进度
+	std::shared_ptr<std::atomic<double>> create_export_runner(
+		const std::string& export_file_path,
+		size_t kbps
+	);                                                      // 创建音频导出运行器
 	void show_preview_runner_error(const std::any& error);  // 显示预览运行器错误信息
+	void show_export_runner_error(const std::any& error);   // 显示导出运行器错误信息
 
 	// 辅助函数
 	static std::string get_current_state_text(App::State state);  // 获取当前状态的文本描述

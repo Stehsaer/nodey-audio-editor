@@ -38,13 +38,13 @@ namespace processor
 			.singleton = false,
 			.generate = std::make_unique<Audio_vol>,
 			.description = "Audio Volume Adjuster\n\n"
-				"## Functionality\n"
-				"- Adjusts the volume of audio streams by a specified factor\n"
-				"- Supports mono and stereo audio formats\n"
-				"- Outputs audio in 48kHz, 32-bit float format\n\n"
-				"## Usage\n"
-				"- Connect audio input streams to the 'Input' pin\n"
-				"- Set the desired volume adjustment factor using the slider",
+						   "## Functionality\n"
+						   "- Adjusts the volume of audio streams by a specified factor\n"
+						   "- Supports mono and stereo audio formats\n"
+						   "- Outputs audio in 48kHz, 32-bit float format\n\n"
+						   "## Usage\n"
+						   "- Connect audio input streams to the 'Input' pin\n"
+						   "- Set the desired volume adjustment factor using the slider",
 		};
 	}
 
@@ -168,6 +168,7 @@ namespace processor
 			out_frame->nb_samples = src_frame.nb_samples;
 			out_frame->ch_layout = src_frame.ch_layout;
 			out_frame->pts = src_frame.pts;
+			out_frame->time_base = src_frame.time_base;
 
 			av_frame_get_buffer(out_frame, 32);
 
@@ -254,9 +255,9 @@ namespace processor
 	}
 
 	bool Audio_vol::draw_content(bool readonly)
-	{	
+	{
 		ImGui::Separator();
-		if(ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
+		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			ImGui::BeginGroup();
 			ImGui::BeginDisabled(readonly);
