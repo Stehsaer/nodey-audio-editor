@@ -32,7 +32,6 @@ namespace config
 	namespace appearance
 	{
 		inline static constexpr auto window_title = "Nodey Audio Editor";              // 标题
-		inline static constexpr auto side_panel_width = 300;                           // 左面板宽度
 		inline static constexpr auto toolbar_internal_width = 40;                      // 工具栏内部宽度
 		inline static constexpr auto toolbar_margin = 30;                              // 工具栏边距
 		inline static constexpr auto node_editor_minimap_fraction = 0.15;              // 节点编辑器小地图占比
@@ -69,6 +68,22 @@ namespace config
 			inline static constexpr int std_sample_rate = 48000;
 		}
 
+	}
+
+	namespace app
+	{
+		const std::string_view source_page = "https://github.com/Stehsaer/nodey-audio-editor";  // 源码页面
+
+		namespace audio_amix
+		{
+			inline static constexpr int std_sample_rate = 48000;
+		}
+
+		namespace audio_bimix
+		{
+			inline static constexpr int std_sample_rate = 48000;
+		}
+
 		namespace display_spectrum
 		{
 			inline static constexpr int spectrum_size = 50000;
@@ -80,5 +95,6 @@ namespace config
 // 运行时参数
 namespace runtime_config
 {
-	extern float ui_scale;  // UI缩放比例
+	// UI参数
+	extern float ui_scale;
 }

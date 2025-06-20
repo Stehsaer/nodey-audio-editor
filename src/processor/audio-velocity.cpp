@@ -1,10 +1,10 @@
-#include "processor/audio-stream.hpp"
+#include <imgui.h>
 #ifdef _WIN32
 #define NOMINMAX
 #endif
 
-#include "frontend/imgui-utility.hpp"
 #include "processor/audio-velocity.hpp"
+#include "utility/imgui-utility.hpp"
 
 #include <algorithm>
 #include <boost/fiber/operations.hpp>
@@ -18,7 +18,16 @@ namespace processor
 			.identifier = "velocity_modifier",
 			.display_name = "Velocity Modifier",
 			.singleton = false,
-			.generate = std::make_unique<Velocity_modifier>
+			.generate = std::make_unique<Velocity_modifier>,
+			.description = "Audio Velocity Modifier\n\n"
+						   "## Functionality\n"
+						   "- Adjusts the velocity of audio streams\n"
+						   "- Supports pitch preservation with velocity adjustment\n"
+						   "- Outputs audio in 48kHz, 32-bit float format\n\n"
+						   "## Usage\n"
+						   "- Connect audio input streams to the 'Input' pin\n"
+						   "- Adjust the velocity multiplier using the slider\n"
+						   "- Optionally preserve pitch while modifying velocity",
 		};
 	}
 
@@ -56,7 +65,14 @@ namespace processor
 			.identifier = "pitch_modifier",
 			.display_name = "Pitch Modifier",
 			.singleton = false,
-			.generate = std::make_unique<Pitch_modifier>
+			.generate = std::make_unique<Pitch_modifier>,
+			.description = "Audio Pitch Modifier\n\n"
+						   "## Functionality\n"
+						   "- Adjusts the pitch of audio streams by a specified note value\n"
+						   "- Outputs audio in 48kHz, 32-bit float format\n\n"
+						   "## Usage\n"
+						   "- Connect audio input streams to the 'Input' pin\n"
+						   "- Adjust the pitch value using the input field",
 		};
 	}
 
@@ -90,37 +106,45 @@ namespace processor
 
 	bool Velocity_modifier::draw_content(bool readonly)
 	{
-		ImGui::PushItemWidth(200);
-		ImGui::BeginDisabled(readonly);
-		{
-			ImGui::DragFloat(
-				"Velocity",
-				&velocity,
-				0.01,
-				0.5,
-				3.0,
-				"%.2fx",
-				ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic
-			);
 
-			ImGui::Checkbox("Keep Pitch", &keep_pitch);
+		ImGui::Separator();
+		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			ImGui::PushItemWidth(200);
+			ImGui::BeginDisabled(readonly);
+			{
+				ImGui::DragFloat(
+					"Velocity",
+					&velocity,
+					0.01,
+					0.5,
+					3.0,
+					"%.2fx",
+					ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic
+				);
+
+				ImGui::Checkbox("Keep Pitch", &keep_pitch);
+			}
+			ImGui::EndDisabled();
+			ImGui::PopItemWidth();
 		}
-		ImGui::EndDisabled();
-		ImGui::PopItemWidth();
 
 		return false;
 	}
 
 	bool Pitch_modifier::draw_content(bool readonly)
 	{
-		ImGui::PushItemWidth(200);
-		ImGui::BeginDisabled(readonly);
+		ImGui::Separator();
+		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			ImGui::InputFloat("Pitch (Note)", &pitch, 0.5, 1.0, "%+.1f");
+			ImGui::PushItemWidth(200);
+			ImGui::BeginDisabled(readonly);
+			{
+				ImGui::InputFloat("Pitch (Note)", &pitch, 0.5, 1.0, "%+.1f");
+			}
+			ImGui::EndDisabled();
+			ImGui::PopItemWidth();
 		}
-		ImGui::EndDisabled();
-		ImGui::PopItemWidth();
-
 		return false;
 	}
 
@@ -453,32 +477,6 @@ namespace processor
 		);
 	}
 
-	Json::Value Pitch_modifier::serialize() const
-	{
-		Json::Value value;
-		value["pitch"] = pitch;
-		return value;
-	}
-
-	void Pitch_modifier::deserialize(const Json::Value& value)
-	{
-		if (!value.isMember("pitch"))
-			throw Runtime_error(
-				"Failed to deserialize JSON file",
-				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
-				"Wrong field: pitch"
-			);
-
-		if (!value["pitch"].isDouble())
-			throw Runtime_error(
-				"Failed to deserialize JSON file",
-				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
-				"Wrong field: pitch"
-			);
-
-		pitch = value["pitch"].asDouble();
-	}
-
 	Json::Value Velocity_modifier::serialize() const
 	{
 		Json::Value value;
@@ -489,36 +487,21 @@ namespace processor
 
 	void Velocity_modifier::deserialize(const Json::Value& value)
 	{
-		if (!value.isMember("velocity"))
-			throw Runtime_error(
-				"Failed to deserialize JSON file",
-				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
-				"Wrong field: velocity"
-			);
+		if (value.isMember("velocity") && value["velocity"].isDouble())
+			velocity = value["velocity"].asFloat();
+		if (value.isMember("keep_pitch") && value["keep_pitch"].isBool())
+			keep_pitch = value["keep_pitch"].asBool();
+	}
 
-		if (!value["velocity"].isDouble())
-			throw Runtime_error(
-				"Failed to deserialize JSON file",
-				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
-				"Wrong field: velocity"
-			);
+	Json::Value Pitch_modifier::serialize() const
+	{
+		Json::Value value;
+		value["pitch"] = pitch;
+		return value;
+	}
 
-		velocity = value["velocity"].asFloat();
-
-		if (!value.isMember("keep_pitch"))
-			throw Runtime_error(
-				"Failed to deserialize JSON file",
-				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
-				"Wrong field: keep_pitch"
-			);
-
-		if (!value["keep_pitch"].isBool())
-			throw Runtime_error(
-				"Failed to deserialize JSON file",
-				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
-				"Wrong field: keep_pitch"
-			);
-
-		keep_pitch = value["keep_pitch"].asBool();
+	void Pitch_modifier::deserialize(const Json::Value& value)
+	{
+		if (value.isMember("pitch") && value["pitch"].isDouble()) pitch = value["pitch"].asFloat();
 	}
 }

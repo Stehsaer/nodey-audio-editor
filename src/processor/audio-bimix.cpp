@@ -1,23 +1,22 @@
 #include "processor/audio-bimix.hpp"
 #include "config.hpp"
-#include "frontend/imgui-utility.hpp"
 #include "libavutil/channel_layout.h"
 #include "libavutil/samplefmt.h"
 #include "utility/free-utility.hpp"
+#include "utility/imgui-utility.hpp"
 #include "utility/sw-resample.hpp"
 
 #include <algorithm>
 #include <boost/fiber/operations.hpp>
 #include <cstdlib>
+#include <imgui.h>
 #include <iostream>
 #include <limits>
 #include <memory>
-#include <numeric>
 #include <print>
 #include <ranges>
 #include <span>
 #include <vector>
-
 
 namespace processor
 {
@@ -28,7 +27,23 @@ namespace processor
 			.identifier = "audio_bimix",
 			.display_name = "Audio Bimix",
 			.singleton = false,
-			.generate = std::make_unique<Audio_bimix>
+			.generate = std::make_unique<Audio_bimix>,
+			.description = "Advanced Stereo Channel Mixer (V2)\n\n"
+						   "## Functionality\n"
+						   "- Enhanced stereo mixing with precise time alignment\n"
+						   "- Handles asynchronous left and right channel inputs\n"
+						   "- Advanced resampling with buffer management\n"
+						   "- Time-accurate channel synchronization\n"
+						   "- Bias control for channel balance adjustment\n\n"
+						   "## Output Format\n"
+						   "- Sample Rate: 48kHz (configurable)\n"
+						   "- Format: 32-bit Float Interleaved\n"
+						   "- Channels: Stereo (Left/Right)\n\n"
+						   "## Usage\n"
+						   "- Connect audio sources to 'Left' and 'Right' input pins\n"
+						   "- Adjust bias slider for channel balance (-1.0 to +1.0)\n"
+						   "- Supports different sample rates and formats on inputs\n"
+						   "- Automatically handles timing misalignment between channels\n\n"
 		};
 	}
 
@@ -117,6 +132,8 @@ namespace processor
 			}
 		};
 
+		int input_num = 2;
+
 		while (!stop_token)
 		{
 			// 获取数据
@@ -156,16 +173,14 @@ namespace processor
 			const auto& frame_r = buf_r.empty() ? nullptr : buf_r.front()->data();
 
 			AVFrame* out_frame = new_frame->data();
-
 			if (frame_r && frame_l)
 				out_frame->nb_samples = std::min(frame_r->nb_samples, frame_l->nb_samples);
-			else if (!frame_r && frame_l)
+			if (!frame_r && frame_l)
 				out_frame->nb_samples = frame_l->nb_samples;
 			else if (frame_r && !frame_l)
 				out_frame->nb_samples = frame_r->nb_samples;
 			else
 				out_frame->nb_samples = 1152;
-
 			out_frame->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
 			out_frame->sample_rate = 48000;
 			out_frame->format = AV_SAMPLE_FMT_FLTP;
@@ -239,7 +254,6 @@ namespace processor
 				static_cast<AVSampleFormat>(out_frame->format),
 				0
 			);
-
 			int convert_count_l = 0;
 			if (frame_l)
 				convert_count_l = swr_convert(
@@ -251,7 +265,6 @@ namespace processor
 				);
 			else
 				convert_count_l = swr_convert(resampler_l, data1, out_frame->nb_samples, 0, 0);
-
 			if (convert_count_l < 0)
 				throw Runtime_error(
 					"Software resampler failed",
@@ -268,7 +281,6 @@ namespace processor
 				static_cast<AVSampleFormat>(out_frame->format),
 				0
 			);
-
 			int convert_count_r = 0;
 			if (frame_r)
 				convert_count_r = swr_convert(
@@ -279,8 +291,7 @@ namespace processor
 					frame_r->nb_samples
 				);
 			else
-				convert_count_r = swr_convert(resampler_r, data2, out_frame->nb_samples, 0, 0);
-
+				convert_count_l = swr_convert(resampler_r, data2, out_frame->nb_samples, 0, 0);
 			if (convert_count_r < 0)
 				throw Runtime_error(
 					"Software resampler failed",
@@ -289,6 +300,8 @@ namespace processor
 				);
 
 			const auto* float_data_ll = (const float*)data1[0];
+			const auto* float_data_lr = (const float*)data1[1];
+			const auto* float_data_rl = (const float*)data2[0];
 			const auto* float_data_rr = (const float*)data2[1];
 
 			auto* out_left = (float*)out_frame->data[0];
@@ -299,8 +312,8 @@ namespace processor
 
 			for (size_t i = 0; i < out_frame->nb_samples; i++)
 			{
-				out_left[i] = float_data_ll[i] * bias_minus;
-				out_right[i] = float_data_rr[i] * bias_plus;
+				out_left[i] = (float_data_ll[i] / 2 + float_data_lr[i] / 2) * bias_minus;
+				out_right[i] = (float_data_rl[i] / 2 + float_data_rr[i] / 2) * bias_plus;
 			}
 
 			if (frame_l) buf_l.erase(buf_l.begin());
@@ -310,9 +323,6 @@ namespace processor
 
 			if (data1) av_freep(&data1[0]);
 			if (data2) av_freep(&data2[0]);
-
-			av_freep(data1);
-			av_freep(data2);
 
 			if (convert_count_r == 0 && convert_count_l == 0) break;
 		}
@@ -327,15 +337,20 @@ namespace processor
 
 	bool Audio_bimix::draw_content(bool readonly)
 	{
-		ImGui::SetNextItemWidth(200);
-		ImGui::BeginGroup();
-		ImGui::BeginDisabled(readonly);
+		ImGui::Separator();
+
+		if (ImGui::CollapsingHeader("properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			ImGui::DragFloat("Bias", &this->bias, 0.005, -1.0, 1.0, "%.3f");
-			bias = std::clamp<float>(bias, -1, 1);
+			ImGui::SetNextItemWidth(200);
+			ImGui::BeginGroup();
+			ImGui::BeginDisabled(readonly);
+			{
+				ImGui::DragFloat("Bias", &this->bias, 0.005, -1.0, 1.0, "%.3f");
+				bias = std::clamp<float>(bias, -1, 1);
+			}
+			ImGui::EndDisabled();
+			ImGui::EndGroup();
 		}
-		ImGui::EndDisabled();
-		ImGui::EndGroup();
 
 		return false;
 	}
@@ -373,7 +388,23 @@ namespace processor
 			.identifier = "audio_bimix_v2",
 			.display_name = "Audio Bimix V2",
 			.singleton = false,
-			.generate = std::make_unique<Audio_bimix_v2>
+			.generate = std::make_unique<Audio_bimix_v2>,
+			.description = "Advanced Stereo Channel Mixer (V2)\n\n"
+						   "## Functionality\n"
+						   "- Enhanced stereo mixing with precise time alignment\n"
+						   "- Handles asynchronous left and right channel inputs\n"
+						   "- Advanced resampling with buffer management\n"
+						   "- Time-accurate channel synchronization\n"
+						   "- Bias control for channel balance adjustment\n\n"
+						   "## Output Format\n"
+						   "- Sample Rate: 48kHz (configurable)\n"
+						   "- Format: 32-bit Float Interleaved\n"
+						   "- Channels: Stereo (Left/Right)\n\n"
+						   "## Usage\n"
+						   "- Connect audio sources to 'Left' and 'Right' input pins\n"
+						   "- Adjust bias slider for channel balance (-1.0 to +1.0)\n"
+						   "- Supports different sample rates and formats on inputs\n"
+						   "- Automatically handles timing misalignment between channels\n\n"
 		};
 	}
 
@@ -412,30 +443,10 @@ namespace processor
 
 	Json::Value Audio_bimix_v2::serialize() const
 	{
-		Json::Value value;
-		value["bias"] = bias;
-		return value;
+		return {};
 	}
 
-	void Audio_bimix_v2::deserialize(const Json::Value& value)
-	{
-		if (!value.isMember("bias"))
-			throw Runtime_error(
-				"Failed to deserialize JSON file",
-				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
-				"Wrong field: bias"
-			);
-
-		if (!value["bias"].isDouble())
-			throw Runtime_error(
-				"Failed to deserialize JSON file",
-				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
-				"Wrong field: bias"
-			);
-
-		bias = value["bias"].asDouble();
-		bias = std::clamp<float>(bias, -1, 1);
-	}
+	void Audio_bimix_v2::deserialize(const Json::Value& value) {}
 
 	static std::shared_ptr<Audio_frame> make_audio_frame_flt_interleaved(
 		std::span<float> samples,
@@ -524,6 +535,8 @@ namespace processor
 
 		while (!stop_token)
 		{
+			boost::this_fiber::yield();
+
 			/* 获取左声道帧 */
 			if (!eof_l)
 			{
@@ -718,53 +731,47 @@ namespace processor
 				// 右声道已经结束
 				if (frames_r.empty() && eof_r)
 				{
-					const auto frame_lengths
-						= frames_l | std::views::transform([](const Frame& f) { return f.samples.size(); });
-
-					const size_t remaining_samples
-						= std::accumulate(frame_lengths.begin(), frame_lengths.end(), 0zu);
+					const size_t remaining_samples = frames_l.front().samples.size();
 
 					std::vector<float> remaining_samples_buffer(remaining_samples * 2);
 					auto begin = remaining_samples_buffer.begin();
-					for (auto& frame : frames_l)
-						for (float sample : frame.samples)
-						{
-							*begin++ = 0;
-							*begin++ = sample;
-						}
+					for (float sample : frames_l.front().samples)
+					{
+						*begin++ = sample;
+						*begin++ = 0;
+					}
 
 					push_frame(make_audio_frame_flt_interleaved(
 						std::span(remaining_samples_buffer),
 						frames_l.front().time_seconds
 					));
 
-					break;
+					frames_l.pop_front();
+
+					continue;
 				}
 
 				// 左声道已经结束
 				if (frames_l.empty() && eof_l)
 				{
-					const auto frame_lengths
-						= frames_r | std::views::transform([](const Frame& f) { return f.samples.size(); });
-
-					const size_t remaining_samples
-						= std::accumulate(frame_lengths.begin(), frame_lengths.end(), 0zu);
+					const size_t remaining_samples = frames_r.front().samples.size();
 
 					std::vector<float> remaining_samples_buffer(remaining_samples * 2);
 					auto begin = remaining_samples_buffer.begin();
-					for (auto& frame : frames_r)
-						for (float sample : frame.samples)
-						{
-							*begin++ = 0;
-							*begin++ = sample;
-						}
+					for (float sample : frames_r.front().samples)
+					{
+						*begin++ = 0;
+						*begin++ = sample;
+					}
 
 					push_frame(make_audio_frame_flt_interleaved(
 						std::span(remaining_samples_buffer),
 						frames_r.front().time_seconds
 					));
 
-					break;
+					frames_r.pop_front();
+
+					continue;
 				}
 
 				while (!frames_l.empty() && !frames_r.empty() && !stop_token)
@@ -775,8 +782,6 @@ namespace processor
 					// 流对应的偏移（偏移0为左声道，偏移1为右声道）
 					const size_t eariler_offset = left_eariler ? 0 : 1;
 					const size_t later_offset = left_eariler ? 1 : 0;
-					const float eariler_bias = left_eariler ? (1 - bias) / 2 : (1 + bias) / 2;
-					const float later_bias = left_eariler ? (1 + bias) / 2 : (1 - bias) / 2;
 
 					auto& eariler_stream = left_eariler ? frames_l : frames_r;
 					auto& later_stream = left_eariler ? frames_r : frames_l;
@@ -793,8 +798,7 @@ namespace processor
 
 						for (size_t i = 0; i < eariler_stream.front().samples.size(); i++)
 						{
-							frame_samples[i * 2 + eariler_offset]
-								= eariler_stream.front().samples[i] * eariler_bias;
+							frame_samples[i * 2 + eariler_offset] = eariler_stream.front().samples[i];
 							frame_samples[i * 2 + later_offset] = 0;
 						}
 
@@ -832,8 +836,7 @@ namespace processor
 					// 填入未对齐的样本
 					for (size_t i = 0; i < unaligned_samples; i++)
 					{
-						frame_samples[i * 2 + eariler_offset]
-							= eariler_stream.front().samples[i] * eariler_bias;
+						frame_samples[i * 2 + eariler_offset] = eariler_stream.front().samples[i];
 						frame_samples[i * 2 + later_offset] = 0;
 					}
 
@@ -841,9 +844,9 @@ namespace processor
 					for (size_t i = 0; i < aligned_samples; i++)
 					{
 						frame_samples[(i + unaligned_samples) * 2 + eariler_offset]
-							= eariler_stream.front().samples[i + unaligned_samples] * eariler_bias;
+							= eariler_stream.front().samples[i + unaligned_samples];
 						frame_samples[(i + unaligned_samples) * 2 + later_offset]
-							= later_stream.front().samples[i] * later_bias;
+							= later_stream.front().samples[i];
 					}
 
 					// 根据结束情况移除对应帧
@@ -864,13 +867,10 @@ namespace processor
 					if (!later_stream.empty() && later_stream.front().samples.empty())
 						later_stream.pop_front();
 
-					push_frame(
-						make_audio_frame_flt_interleaved(std::span(frame_samples), eariler_begin_time)
+					push_frame(make_audio_frame_flt_interleaved(std::span(frame_samples), eariler_begin_time)
 					);
 				}
 			}
-
-			boost::this_fiber::yield();
 		}
 
 		for (auto& stream : output_stream) stream->set_eof();
@@ -883,15 +883,12 @@ namespace processor
 
 	bool Audio_bimix_v2::draw_content(bool readonly)
 	{
-		ImGui::SetNextItemWidth(200);
-		ImGui::BeginGroup();
-		ImGui::BeginDisabled(readonly);
+		ImGui::Separator();
+
+		if (ImGui::CollapsingHeader("properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			ImGui::DragFloat("Bias", &this->bias, 0.005, -1.0, 1.0, "%.3f");
-			bias = std::clamp<float>(bias, -1, 1);
+			ImGui::Text("No Configuration Available");
 		}
-		ImGui::EndDisabled();
-		ImGui::EndGroup();
 
 		return false;
 	}

@@ -16,6 +16,8 @@ namespace infra
 
 		if (info.singleton) singleton_node_map.emplace(info.identifier, id);
 
+		modified = true;
+
 		return id;
 	}
 
@@ -42,6 +44,8 @@ namespace infra
 			{ return set.contains(pair.second.from) || set.contains(pair.second.to); }
 		);
 		set.clear();
+
+		modified = true;
 
 		nodes.erase(id);
 	}
@@ -105,6 +109,8 @@ namespace infra
 				THROW_LOGIC_ERROR("Pin name {} already exists for node ID {}", attribute.identifier, id);
 			item.pin_name_map.emplace(attribute.identifier, pin_id);
 		}
+
+		modified = true;
 	}
 
 	Id_t Graph::add_link(Id_t from, Id_t to)
@@ -117,12 +123,17 @@ namespace infra
 		const auto id = find_empty(links);
 		links.erase(id);
 		links.emplace(id, Link{.from = from, .to = to});
+
+		modified = true;
+
 		return id;
 	}
 
 	void Graph::remove_link(Id_t id)
 	{
 		links.erase(id);
+
+		modified = true;
 	}
 
 	void Graph::remove_link(Id_t from, Id_t to)
@@ -130,7 +141,10 @@ namespace infra
 		std::erase_if(
 			links,
 			[&](const auto& item) -> bool { return item.second.from == from && item.second.to == to; }
+
 		);
+
+		modified = true;
 	}
 
 	std::map<Id_t, Id_t> Graph::get_pin_to_node_map() const

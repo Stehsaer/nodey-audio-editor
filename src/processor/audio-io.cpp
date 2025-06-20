@@ -1,16 +1,20 @@
 #include "processor/audio-io.hpp"
 #include "config.hpp"
-#include "frontend/imgui-utility.hpp"
 #include "frontend/nerdfont.hpp"
 #include "utility/dialog-utility.hpp"
 #include "utility/free-utility.hpp"
+#include "utility/imgui-utility.hpp"
 #include "utility/sw-resample.hpp"
 
 #include <SDL_events.h>
+#include <algorithm>
 #include <boost/fiber/operations.hpp>
 #include <cassert>
 #include <filesystem>
+#include <fstream>
 #include <print>
+
+#include <lame/lame.h>
 
 extern "C"
 {
@@ -26,7 +30,16 @@ namespace processor
 			.identifier = "audio_input",
 			.display_name = "Audio Input",
 			.singleton = true,
-			.generate = std::make_unique<Audio_input>
+			.generate = std::make_unique<Audio_input>,
+			.description = "Audio Input Processor\n\n"
+						   "## Functionality\n"
+						   "- Reads audio files and outputs audio streams\n"
+						   "- Supports multiple file inputs with configurable paths\n"
+						   "- Outputs audio in 48kHz, 32-bit float format\n\n"
+						   "## Usage\n"
+						   "- Add file paths to the input list\n"
+						   "- Connect output pins to other audio processors or outputs\n"
+						   "- Supports real-time audio playback from files",
 		};
 	}
 
@@ -42,7 +55,8 @@ namespace processor
 				 .display_name = std::format("Output {}", i + 1),
 				 .type = typeid(Audio_stream),
 				 .is_input = false,
-				 .generate_func = []
+				 .generate_func =
+					 []
 				 {
 					 return std::make_shared<Audio_stream>();
 				 }}
@@ -318,6 +332,8 @@ namespace processor
 		}
 
 		file_count = file_paths.size();
+		file_count = std::max<size_t>(file_count, 1);
+		file_paths.resize(file_count);
 		remove_index.reset();
 	}
 
@@ -329,6 +345,7 @@ namespace processor
 	bool Audio_input::draw_content(bool readonly)
 	{
 		bool modified = false;
+		ImGui::Separator();
 
 		if (remove_index.has_value())
 		{
@@ -338,6 +355,8 @@ namespace processor
 			modified = true;
 		}
 
+		file_count = std::max<size_t>(file_count, 1);
+
 		if (file_count > file_paths.size())
 		{
 			file_paths.resize(file_count);
@@ -346,44 +365,62 @@ namespace processor
 
 		if (file_count < file_paths.size())
 			THROW_LOGIC_ERROR("File count of ({}) smaller than file paths size ({})", file_count, file_paths);
-
-		ImGui::SetNextItemWidth(200);
-		ImGui::BeginGroup();
-		ImGui::BeginDisabled(readonly);
+		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			for (size_t i = 0; i < file_count; i++)
+			ImGui::SetNextItemWidth(200);
+			ImGui::BeginGroup();
+			ImGui::BeginDisabled(readonly);
 			{
-				ImGui::Text("Slot %zu", i + 1);
-				ImGui::SameLine();
-				if (ImGui::Button(std::format("Browse " ICON_EXT_LINK "##browse_button_{}", i).c_str()))
+				for (size_t i = 0; i < file_count; i++)
 				{
-					const auto& current_path = file_paths[i];
-					std::string default_path = ".";
+					ImGui::SeparatorText(std::format("Slot {}", i + 1).c_str());
 
-					if (std::filesystem::exists(current_path)
-						&& std::filesystem::is_regular_file(current_path))
-						default_path = std::filesystem::path(current_path).parent_path().string();
+					const auto normalize_path_offset = file_paths[i].find_last_of('/');
 
-					const auto open_file_result = open_file_dialog(
-						"Select Audio File",
-						{"Audio Files (*.wav, *.mp3, *.flac, *.ogg)",
-						 "*.wav *.mp3 *.flac *.ogg",
-						 "All Files",
-						 "*.*"},
-						default_path
+					ImGui::TextWrapped(
+						"File Path: %s",
+						file_paths[i].empty()
+							? "None"
+							: file_paths[i].c_str()
+								  + ((normalize_path_offset != std::string::npos) ? normalize_path_offset + 1
+																				  : 0)
 					);
+					if (ImGui::Button(std::format("Browse " ICON_EXT_LINK "##browse_button_{}", i).c_str()))
+					{
+						const auto& current_path = file_paths[i];
+						std::string default_path = ".";
 
-					if (open_file_result.has_value()) file_paths[i] = open_file_result.value();
+						if (std::filesystem::exists(current_path)
+							&& std::filesystem::is_regular_file(current_path))
+							default_path = std::filesystem::path(current_path).parent_path().string();
+
+						const auto open_file_result = open_file_dialog(
+							"Select Audio File",
+							{"Audio Files (*.wav, *.mp3, *.flac, *.ogg)",
+							 "*.wav *.mp3 *.flac *.ogg",
+							 "All Files",
+							 "*.*"},
+							default_path
+						);
+
+						if (open_file_result.has_value()) file_paths[i] = open_file_result.value();
+					}
+
+					ImGui::SameLine();
+
+					ImGui::BeginDisabled(file_count == 1);
+					if (ImGui::Button(std::format(ICON_TRASH "##delete_button_{}", i).c_str()))
+						remove_index = i;
+					ImGui::EndDisabled();
 				}
 
-				ImGui::SameLine();
-				if (ImGui::Button(std::format(ICON_TRASH "##delete_button_{}", i).c_str())) remove_index = i;
-			}
+				ImGui::Separator();
 
-			if (ImGui::Button(ICON_FILE_ADD)) file_count++;
+				if (ImGui::Button(ICON_FILE_ADD)) file_count++;
+			}
+			ImGui::EndDisabled();
+			ImGui::EndGroup();
 		}
-		ImGui::EndDisabled();
-		ImGui::EndGroup();
 
 		return modified;
 	}
@@ -394,7 +431,15 @@ namespace processor
 			.identifier = "audio_output",
 			.display_name = "Audio Output",
 			.singleton = true,
-			.generate = std::make_unique<Audio_output>
+			.generate = std::make_unique<Audio_output>,
+			.description = "Audio Output Processor\n\n"
+						   "## Functionality\n"
+						   "- Outputs audio streams to the system's audio device\n"
+						   "- Supports real-time audio playback\n"
+						   "- Outputs audio in 48kHz, 32-bit float format\n\n"
+						   "## Usage\n"
+						   "- Connect an audio stream input to the 'Input' pin\n"
+						   "- The processor will play the audio through the system's default output device",
 		};
 	}
 
@@ -416,26 +461,25 @@ namespace processor
 	{
 		imgui_utility::shadowed_text("Audio Output");
 	}
+	bool Audio_output::draw_content(bool readonly)
+	{
+		ImGui::Separator();
 
-	void Audio_output::process_payload(
-		const std::map<std::string, std::shared_ptr<infra::Processor::Product>>& input [[maybe_unused]],
-		const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output
-		[[maybe_unused]],
-		const std::atomic<bool>& stop_token,
-		std::any& user_data [[maybe_unused]]
+		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			ImGui::Text("This processor outputs audio to the system's default audio device.");
+			ImGui::Text("No configurable properties available.");
+		}
+
+		return false;  // No modifications
+	}
+
+	void Audio_output::do_preview(
+		Audio_stream& input_stream,
+		SDL_AudioDeviceID audio_device,
+		const std::atomic<bool>& stop_token
 	)
 	{
-		const auto input_item_optional = get_input_item<Audio_stream>(input, "input");
-
-		if (!input_item_optional.has_value())
-			throw Runtime_error(
-				"Audio output processor has no input",
-				"Audio output processor requires an audio stream input to function properly.",
-				"Input item 'input' not found"
-			);
-
-		auto& input_item = input_item_optional.value().get();
-
 		struct Stream_info
 		{
 			int sample_rate, element_count, channels;
@@ -444,14 +488,13 @@ namespace processor
 
 		std::optional<Stream_info> stream_info;
 
-		auto frontend_context = std::any_cast<Process_context>(user_data);
-		SDL_PauseAudioDevice(frontend_context.audio_device, 0);
-		SDL_ClearQueuedAudio(frontend_context.audio_device);
+		SDL_PauseAudioDevice(audio_device, 0);
+		SDL_ClearQueuedAudio(audio_device);
 		const Free_utility stop_audio(
-			[frontend_context]
+			[audio_device]
 			{
-				SDL_ClearQueuedAudio(frontend_context.audio_device);
-				SDL_PauseAudioDevice(frontend_context.audio_device, 1);
+				SDL_ClearQueuedAudio(audio_device);
+				SDL_PauseAudioDevice(audio_device, 1);
 			}
 		);
 
@@ -461,13 +504,13 @@ namespace processor
 		{
 			// 获取数据
 
-			const auto pop_result = input_item.try_pop();
+			const auto pop_result = input_stream.try_pop();
 
 			if (!pop_result.has_value())
 			{
 				if (pop_result.error() == boost::fibers::channel_op_status::empty)
 				{
-					if (input_item.eof()) break;
+					if (input_stream.eof()) break;
 					boost::this_fiber::yield();
 					continue;
 				}
@@ -505,7 +548,7 @@ namespace processor
 
 				auto resampler_create = Audio_resampler::create(input_format, output_format);
 				if (!resampler_create.has_value())
-					throw Runtime_error(
+					throw infra::Processor::Runtime_error(
 						"Failed to create audio resampler",
 						"Cannot create audio resampler for the input audio format. Internal error may have "
 						"occurred.",
@@ -573,14 +616,14 @@ namespace processor
 			if constexpr (std::is_same_v<config::audio::Buffer_type, float>)
 				for (auto& val : output_buffer) val = std::clamp<float>(val, -1.0, +1.0);
 
-			while (SDL_GetQueuedAudioSize(frontend_context.audio_device) > config::audio::max_buffer_size)
+			while (SDL_GetQueuedAudioSize(audio_device) > config::audio::max_buffer_size)
 			{
 				if (stop_token) return;
 				boost::this_fiber::yield();
 			}
 
 			if (SDL_QueueAudio(
-					frontend_context.audio_device,
+					audio_device,
 					output_buffer.data(),
 					convert_count * config::audio::channels * sizeof(config::audio::Buffer_type)
 				)
@@ -591,5 +634,235 @@ namespace processor
 					std::format("SDL Error: {}", SDL_GetError())
 				);
 		}
+	}
+
+	void Audio_output::do_export(
+		Audio_stream& input_stream,
+		Process_context context,
+		const std::atomic<bool>& stop_token
+	)
+	{
+		/* 设置上下文 */
+
+		std::ofstream output_file(context.export_path, std::ios::binary);
+		if (!output_file.is_open())
+			throw Runtime_error(
+				"Failed to open output file",
+				"Cannot open the output file for writing. Check if the path is valid and writable.",
+				std::format("Output path: {}", context.export_path)
+			);
+
+		lame_t lame = lame_init();
+		if (lame == nullptr) throw std::bad_alloc();
+		const Free_utility free_lame(std::bind(lame_close, lame));
+
+		std::vector<std::byte> file_buffer;
+
+		bool lame_param_set = false;
+		auto& time = *context.time;
+		int sample_rate = 0;
+
+		auto push_silence = [lame, &file_buffer, &sample_rate, &output_file](double time)
+		{
+			const int silence_samples = static_cast<int>(time * sample_rate);
+			if (silence_samples <= 0) return;
+
+			const int buffer_size = 1.25 * silence_samples + 7200;  // LAME 的缓冲区大小
+			file_buffer.resize(buffer_size);
+
+			std::vector<short> silence_buffer(silence_samples * 2, 0);  // 双声道静音缓冲区
+
+			const int written = lame_encode_buffer_interleaved(
+				lame,
+				silence_buffer.data(),
+				silence_samples,
+				reinterpret_cast<unsigned char*>(file_buffer.data()),
+				buffer_size
+			);
+
+			if (written < 0)
+				throw Runtime_error(
+					"Failed to encode silence",
+					"Cannot encode silence audio data. Internal error may have occurred.",
+					std::format("LAME Error: {}", written)
+				);
+
+			if (written == 0) return;
+
+			output_file.write(reinterpret_cast<const char*>(file_buffer.data()), written);
+		};
+
+		auto parse_frame = [lame, &file_buffer, &output_file](const AVFrame& frame)
+		{
+			const int buffer_size = 4 * frame.nb_samples + 7200;  // LAME 的缓冲区大小
+			file_buffer.resize(buffer_size);
+
+			int written;
+
+			switch ((AVSampleFormat)frame.format)
+			{
+			case AV_SAMPLE_FMT_S16:
+			{
+				written = lame_encode_buffer_interleaved(
+					lame,
+					reinterpret_cast<short*>(frame.data[0]),
+					frame.nb_samples,
+					reinterpret_cast<unsigned char*>(file_buffer.data()),
+					buffer_size
+				);
+				break;
+			}
+			case AV_SAMPLE_FMT_S16P:
+			{
+				written = lame_encode_buffer(
+					lame,
+					reinterpret_cast<short*>(frame.data[0]),
+					reinterpret_cast<short*>(frame.data[1]),
+					frame.nb_samples,
+					reinterpret_cast<unsigned char*>(file_buffer.data()),
+					buffer_size
+				);
+			}
+			case AV_SAMPLE_FMT_S32:
+			{
+				written = lame_encode_buffer_interleaved_int(
+					lame,
+					reinterpret_cast<int*>(frame.data[0]),
+					frame.nb_samples,
+					reinterpret_cast<unsigned char*>(file_buffer.data()),
+					buffer_size
+				);
+				break;
+			}
+			case AV_SAMPLE_FMT_S32P:
+			{
+				written = lame_encode_buffer_int(
+					lame,
+					reinterpret_cast<int*>(frame.data[0]),
+					reinterpret_cast<int*>(frame.data[1]),
+					frame.nb_samples,
+					reinterpret_cast<unsigned char*>(file_buffer.data()),
+					buffer_size
+				);
+			}
+			case AV_SAMPLE_FMT_FLT:
+			{
+				written = lame_encode_buffer_interleaved_ieee_float(
+					lame,
+					reinterpret_cast<const float*>(frame.data[0]),
+					frame.nb_samples,
+					reinterpret_cast<unsigned char*>(file_buffer.data()),
+					buffer_size
+				);
+				break;
+			}
+			case AV_SAMPLE_FMT_FLTP:
+			{
+				written = lame_encode_buffer_ieee_float(
+					lame,
+					reinterpret_cast<const float*>(frame.data[0]),
+					reinterpret_cast<const float*>(frame.data[1]),
+					frame.nb_samples,
+					reinterpret_cast<unsigned char*>(file_buffer.data()),
+					buffer_size
+				);
+				break;
+			}
+			default:
+				throw Runtime_error(
+					"Unsupported sample format",
+					"The audio sample format is not supported for encoding.",
+					std::format("Sample format: {}", frame.format)
+				);
+			}
+
+			if (written < 0)
+				throw Runtime_error(
+					"Failed to encode audio frame",
+					"Cannot encode the audio frame. Internal error may have occurred.",
+					std::format("LAME Error: {}", written)
+				);
+
+			if (written == 0) return;
+			output_file.write(reinterpret_cast<const char*>(file_buffer.data()), written);
+		};
+
+		while (!stop_token)
+		{
+			const auto pop_result = input_stream.try_pop();
+
+			if (!pop_result.has_value())
+			{
+				if (pop_result.error() == boost::fibers::channel_op_status::empty)
+				{
+					if (input_stream.eof()) break;
+				}
+				else if (pop_result.error() == boost::fibers::channel_op_status::closed)
+					THROW_LOGIC_ERROR("Unexpected channel closed in Audio_output::process_payload");
+			}
+			else
+			{
+				const std::shared_ptr<const Audio_frame>& audio_frame = pop_result.value();
+				const AVFrame& frame = *audio_frame->data();
+
+				if (!lame_param_set)  // 在第一帧初始化重采样器
+				{
+					lame_param_set = true;
+
+					lame_set_in_samplerate(lame, frame.sample_rate);
+					lame_set_num_channels(lame, frame.ch_layout.nb_channels);
+					lame_set_quality(lame, 2);
+					lame_set_mode(
+						lame,
+						frame.ch_layout.nb_channels == 2 ? MPEG_mode::STEREO : MPEG_mode::MONO
+					);
+					lame_set_out_samplerate(lame, config::audio::sample_rate);
+					lame_set_VBR(lame, vbr_off);
+					lame_set_brate(lame, context.kbps);
+
+					if (lame_init_params(lame) == -1)
+						throw Runtime_error(
+							"Failed to initialize LAME parameters",
+							"Cannot set LAME parameters for encoding. Internal error may have occurred."
+						);
+
+					sample_rate = frame.sample_rate;
+				}
+
+				const double frame_begin = frame.pts * av_q2d(frame.time_base);
+				const double frame_end = frame_begin + frame.nb_samples / (double)frame.sample_rate;
+				const double silence_time = frame_begin - time;
+
+				push_silence(silence_time);
+				parse_frame(frame);
+				time = frame_end;
+			}
+
+			boost::this_fiber::yield();
+		}
+	}
+
+	void Audio_output::process_payload(
+		const std::map<std::string, std::shared_ptr<infra::Processor::Product>>& input [[maybe_unused]],
+		const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output
+		[[maybe_unused]],
+		const std::atomic<bool>& stop_token,
+		std::any& user_data [[maybe_unused]]
+	)
+	{
+		const auto input_item_optional = get_input_item<Audio_stream>(input, "input");
+		auto frontend_context = std::any_cast<Process_context>(user_data);
+
+		if (!input_item_optional.has_value())
+			throw Runtime_error(
+				"Audio output processor has no input",
+				"Audio output processor requires an audio stream input to function properly.",
+				"Input item 'input' not found"
+			);
+
+		if (!frontend_context.do_export)
+			do_preview(input_item_optional.value().get(), frontend_context.audio_device, stop_token);
+		else
+			do_export(input_item_optional.value().get(), frontend_context, stop_token);
 	}
 }

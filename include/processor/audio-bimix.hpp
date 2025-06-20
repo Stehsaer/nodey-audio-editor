@@ -67,9 +67,6 @@ namespace processor
 
 	class Audio_bimix_v2 : public infra::Processor
 	{
-		float bias = 0.0f;
-		int buf_max_num = 16;
-
 	  public:
 
 		Audio_bimix_v2() = default;
