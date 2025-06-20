@@ -115,8 +115,6 @@ namespace processor
 			}
 		};
 
-		int input_num = 2;
-
 		while (!stop_token)
 		{
 			// 获取数据
@@ -156,14 +154,16 @@ namespace processor
 			const auto& frame_r = buf_r.empty() ? nullptr : buf_r.front()->data();
 
 			AVFrame* out_frame = new_frame->data();
+
 			if (frame_r && frame_l)
 				out_frame->nb_samples = std::min(frame_r->nb_samples, frame_l->nb_samples);
-			if (!frame_r && frame_l)
+			else if (!frame_r && frame_l)
 				out_frame->nb_samples = frame_l->nb_samples;
 			else if (frame_r && !frame_l)
 				out_frame->nb_samples = frame_r->nb_samples;
 			else
 				out_frame->nb_samples = 1152;
+
 			out_frame->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
 			out_frame->sample_rate = 48000;
 			out_frame->format = AV_SAMPLE_FMT_FLTP;
@@ -237,6 +237,7 @@ namespace processor
 				static_cast<AVSampleFormat>(out_frame->format),
 				0
 			);
+
 			int convert_count_l = 0;
 			if (frame_l)
 				convert_count_l = swr_convert(
@@ -248,6 +249,7 @@ namespace processor
 				);
 			else
 				convert_count_l = swr_convert(resampler_l, data1, out_frame->nb_samples, 0, 0);
+
 			if (convert_count_l < 0)
 				throw Runtime_error(
 					"Software resampler failed",
@@ -264,6 +266,7 @@ namespace processor
 				static_cast<AVSampleFormat>(out_frame->format),
 				0
 			);
+
 			int convert_count_r = 0;
 			if (frame_r)
 				convert_count_r = swr_convert(
@@ -274,7 +277,8 @@ namespace processor
 					frame_r->nb_samples
 				);
 			else
-				convert_count_l = swr_convert(resampler_r, data2, out_frame->nb_samples, 0, 0);
+				convert_count_r = swr_convert(resampler_r, data2, out_frame->nb_samples, 0, 0);
+
 			if (convert_count_r < 0)
 				throw Runtime_error(
 					"Software resampler failed",
@@ -283,8 +287,6 @@ namespace processor
 				);
 
 			const auto* float_data_ll = (const float*)data1[0];
-			const auto* float_data_lr = (const float*)data1[1];
-			const auto* float_data_rl = (const float*)data2[0];
 			const auto* float_data_rr = (const float*)data2[1];
 
 			auto* out_left = (float*)out_frame->data[0];
@@ -295,8 +297,8 @@ namespace processor
 
 			for (size_t i = 0; i < out_frame->nb_samples; i++)
 			{
-				out_left[i] = (float_data_ll[i] / 2 + float_data_lr[i] / 2) * bias_minus;
-				out_right[i] = (float_data_rl[i] / 2 + float_data_rr[i] / 2) * bias_plus;
+				out_left[i] = float_data_ll[i] * bias_minus;
+				out_right[i] = float_data_rr[i] * bias_plus;
 			}
 
 			if (frame_l) buf_l.erase(buf_l.begin());
@@ -306,6 +308,9 @@ namespace processor
 
 			if (data1) av_freep(&data1[0]);
 			if (data2) av_freep(&data2[0]);
+
+			av_freep(data1);
+			av_freep(data2);
 
 			if (convert_count_r == 0 && convert_count_l == 0) break;
 		}

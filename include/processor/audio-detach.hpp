@@ -16,7 +16,9 @@ extern "C"
 #include <libavutil/channel_layout.h>
 #include <libavutil/common.h>
 #include <libavutil/mathematics.h>
+#include <libavutil/opt.h>
 #include <libavutil/samplefmt.h>
+#include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 }
 
@@ -29,25 +31,24 @@ namespace processor
 
 	// 音量调节处理器
 	// - 负责更改音频音量
-	class Audio_vol : public infra::Processor
+	class Audio_detach : public infra::Processor
 	{
-		float volume = 1.0;
-
 	  public:
 
-		Audio_vol() = default;
-		virtual ~Audio_vol() = default;
+		Audio_detach() = default;
+		virtual ~Audio_detach() = default;
 
-		Audio_vol(const Audio_vol&) = delete;
-		Audio_vol(Audio_vol&&) = default;
-		Audio_vol& operator=(const Audio_vol&) = delete;
-		Audio_vol& operator=(Audio_vol&&) = default;
+		Audio_detach(const Audio_detach&) = delete;
+		Audio_detach(Audio_detach&&) = default;
+		Audio_detach& operator=(const Audio_detach&) = delete;
+		Audio_detach& operator=(Audio_detach&&) = default;
 
 		static infra::Processor::Info get_processor_info();
 		virtual Processor::Info get_processor_info_non_static() const { return get_processor_info(); }
 
 		virtual std::vector<infra::Processor::Pin_attribute> get_pin_attributes() const;
-		virtual void process_payload(
+
+		void process_payload(
 			const std::map<std::string, std::shared_ptr<infra::Processor::Product>>& input,
 			const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 			const std::atomic<bool>& stop_token,

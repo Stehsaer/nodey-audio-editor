@@ -1,9 +1,11 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <vector>
+
 
 extern "C"
 {

@@ -1,9 +1,10 @@
+#include "processor/audio-stream.hpp"
 #ifdef _WIN32
 #define NOMINMAX
 #endif
 
-#include "processor/audio-velocity.hpp"
 #include "frontend/imgui-utility.hpp"
+#include "processor/audio-velocity.hpp"
 
 #include <algorithm>
 #include <boost/fiber/operations.hpp>
@@ -450,5 +451,74 @@ namespace processor
 			std::pow(2.0f, pitch / 12.0f),
 			get_processor_info().display_name
 		);
+	}
+
+	Json::Value Pitch_modifier::serialize() const
+	{
+		Json::Value value;
+		value["pitch"] = pitch;
+		return value;
+	}
+
+	void Pitch_modifier::deserialize(const Json::Value& value)
+	{
+		if (!value.isMember("pitch"))
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: pitch"
+			);
+
+		if (!value["pitch"].isDouble())
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: pitch"
+			);
+
+		pitch = value["pitch"].asDouble();
+	}
+
+	Json::Value Velocity_modifier::serialize() const
+	{
+		Json::Value value;
+		value["velocity"] = velocity;
+		value["keep_pitch"] = keep_pitch;
+		return value;
+	}
+
+	void Velocity_modifier::deserialize(const Json::Value& value)
+	{
+		if (!value.isMember("velocity"))
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: velocity"
+			);
+
+		if (!value["velocity"].isDouble())
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: velocity"
+			);
+
+		velocity = value["velocity"].asFloat();
+
+		if (!value.isMember("keep_pitch"))
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: keep_pitch"
+			);
+
+		if (!value["keep_pitch"].isBool())
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: keep_pitch"
+			);
+
+		keep_pitch = value["keep_pitch"].asBool();
 	}
 }

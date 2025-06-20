@@ -32,8 +32,8 @@ namespace processor
 			std::any& user_data
 		);
 
-		virtual Json::Value serialize() const { return {}; }
-		virtual void deserialize(const Json::Value& value) {}
+		virtual Json::Value serialize() const;
+		virtual void deserialize(const Json::Value& value);
 
 		virtual void draw_title();
 		virtual bool draw_content(bool readonly);
@@ -64,8 +64,8 @@ namespace processor
 			std::any& user_data
 		);
 
-		virtual Json::Value serialize() const { return {}; }
-		virtual void deserialize(const Json::Value& value) {}
+		virtual Json::Value serialize() const;
+		virtual void deserialize(const Json::Value& value);
 
 		virtual void draw_title();
 		virtual bool draw_content(bool readonly);
