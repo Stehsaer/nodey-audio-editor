@@ -201,8 +201,8 @@ namespace processor
 
 		if (!input_item_optional.has_value())
 			throw Runtime_error(
-				"echoume adjust processor has no input",
-				"echoume adjust processor requires an audio stream input to function properly.",
+				" Audio echo processor has no input",
+				"Audio echo adjust processor requires an audio stream input to function properly.",
 				"Input item 'input' not found"
 			);
 

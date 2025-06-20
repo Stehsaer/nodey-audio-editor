@@ -390,11 +390,8 @@ namespace processor
 		}
 		return value;
 	}
-<<<<<<< Updated upstream
 
-	== == == =
->>>>>>> Stashed changes
-		void Audio_amix::deserialize(const Json::Value& value)
+	void Audio_amix::deserialize(const Json::Value& value)
 	{
 		if (!value.isMember("input_num"))
 			throw Runtime_error(
@@ -411,9 +408,7 @@ namespace processor
 			 .display_name = "Output",
 			 .type = typeid(Audio_stream),
 			 .is_input = false,
-<<<<<<< Updated upstream
-			 .generate_func = [] == == == =.generate_func = []
->>>>>>> Stashed changes
+			 .generate_func = []
 			 {
 				 return std::make_shared<Audio_stream>();
 			 }}
@@ -425,9 +420,7 @@ namespace processor
 				 .display_name = std::format("Input_{}", i + 1),
 				 .type = typeid(Audio_stream),
 				 .is_input = true,
-<<<<<<< Updated upstream
-				 .generate_func = [] == == == =.generate_func = []
->>>>>>> Stashed changes
+				 .generate_func = []
 				 {
 					 return std::make_shared<Audio_stream>();
 				 }}

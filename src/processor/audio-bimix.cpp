@@ -12,10 +12,12 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <print>
 #include <ranges>
 #include <span>
 #include <vector>
+
 
 namespace processor
 {
@@ -862,7 +864,8 @@ namespace processor
 					if (!later_stream.empty() && later_stream.front().samples.empty())
 						later_stream.pop_front();
 
-					push_frame(make_audio_frame_flt_interleaved(std::span(frame_samples), eariler_begin_time)
+					push_frame(
+						make_audio_frame_flt_interleaved(std::span(frame_samples), eariler_begin_time)
 					);
 				}
 			}

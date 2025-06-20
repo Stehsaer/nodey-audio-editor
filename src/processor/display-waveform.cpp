@@ -57,8 +57,8 @@ namespace processor
 
 		if (!input_item_optional.has_value())
 			throw Runtime_error(
-				"Audio Channel mix processor has no input",
-				"Audio channel mix processor requires an audio stream input to function properly.",
+				"Display waveform processor has no input",
+				"Display waveform processor requires an audio stream input to function properly.",
 				"Input item 'input' not found"
 			);
 

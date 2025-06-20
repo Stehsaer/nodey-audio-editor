@@ -89,8 +89,8 @@ namespace processor
 
 		if (!input_item_optional.has_value())
 			throw Runtime_error(
-				"Volume adjust processor has no input",
-				"Volume adjust processor requires an audio stream input to function properly.",
+				"Ease in processor has no input",
+				"Ease in processor requires an audio stream input to function properly.",
 				"Input item 'input' not found"
 			);
 
