@@ -1,10 +1,10 @@
 #include "processor/time-shift.hpp"
 #include "config.hpp"
-#include "frontend/imgui-utility.hpp"
 #include "imgui.h"
 #include "libavutil/samplefmt.h"
 #include "processor/audio-stream.hpp"
 #include "utility/free-utility.hpp"
+#include "utility/imgui-utility.hpp"
 
 #include "json/value.h"
 #include <boost/fiber/operations.hpp>

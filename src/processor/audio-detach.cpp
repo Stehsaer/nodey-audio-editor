@@ -1,9 +1,9 @@
 #include "processor/audio-detach.hpp"
 #include "config.hpp"
-#include "frontend/imgui-utility.hpp"
 #include "libavutil/channel_layout.h"
 #include "libavutil/samplefmt.h"
 #include "utility/free-utility.hpp"
+#include "utility/imgui-utility.hpp"
 
 #include <boost/fiber/operations.hpp>
 #include <cstdlib>

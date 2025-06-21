@@ -49,6 +49,6 @@ namespace processor
 		virtual void deserialize(const Json::Value& value);
 
 		virtual void draw_title();
-		virtual bool draw_content(bool readonly);
+		virtual void draw_node_content();
 	};
 }

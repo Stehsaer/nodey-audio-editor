@@ -1,8 +1,8 @@
 #include "processor/display-waveform.hpp"
 #include "config.hpp"
-#include "frontend/imgui-utility.hpp"
 #include "imgui.h"
 #include "utility/free-utility.hpp"
+#include "utility/imgui-utility.hpp"
 
 #include "json/value.h"
 #include <algorithm>
@@ -36,7 +36,7 @@ namespace processor
 
 		return std::vector<infra::Processor::Pin_attribute>{
 			{.identifier = "input",
-			 .display_name = "Input_Channel",
+			 .display_name = "Input",
 			 .type = typeid(Audio_stream),
 			 .is_input = true,
 			 .generate_func = []
@@ -87,6 +87,8 @@ namespace processor
 			const auto frame_sample_element_count = frame.nb_samples;
 			const auto frame_channels = frame.ch_layout.nb_channels;
 			uint8_t** data = frame.extended_data;
+
+			std::lock_guard lock(waveform_lock);
 
 			if (frame_channels == 1)
 			{
@@ -280,15 +282,16 @@ namespace processor
 
 	void Display_waveform::draw_title()
 	{
-		imgui_utility::shadowed_text("Waveform");
+		imgui_utility::shadowed_text("Waveform Display");
 	}
 
-	bool Display_waveform::draw_content(bool readonly)
+	void Display_waveform::draw_node_content()
 	{
 		ImGui::SetNextItemWidth(200);
 		ImGui::BeginGroup();
-		ImGui::BeginDisabled(readonly);
 		{
+			std::lock_guard lock(waveform_lock);
+
 			if (!waveform1.empty())
 			{
 				ImGui::PlotLines(
@@ -320,10 +323,7 @@ namespace processor
 			if (ImGui::InputInt("Windows Size", &display_sample_count, 5000))
 				display_sample_count = std::max(5000, display_sample_count);
 		}
-		ImGui::EndDisabled();
 		ImGui::EndGroup();
-
-		return false;
 	}
 
 	Json::Value Display_waveform::serialize() const

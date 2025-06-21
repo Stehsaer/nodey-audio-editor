@@ -1,6 +1,6 @@
 #include "processor/display-spectrum.hpp"
-#include "frontend/imgui-utility.hpp"
 #include "imgui.h"
+#include "utility/imgui-utility.hpp"
 
 #include <boost/fiber/operations.hpp>
 #include <cmath>
@@ -22,7 +22,7 @@ static void fftf(const std::vector<float>& samples, std::vector<float>& spectrum
 	fftwf_execute(plan);
 	for (int i = 0; i < N; ++i)
 	{
-		spectrum[i] = std::sqrt(out[i][0] * out[i][0] + out[i][1] * out[i][1]);
+		spectrum[i] = std::log2f(out[i][0] * out[i][0] + out[i][1] * out[i][1] + 0.00001);
 	}
 	fftwf_destroy_plan(plan);
 	fftwf_free(in);
@@ -47,7 +47,7 @@ namespace processor
 
 		return std::vector<infra::Processor::Pin_attribute>{
 			{.identifier = "input",
-			 .display_name = "Input_Channel",
+			 .display_name = "Input",
 			 .type = typeid(Audio_stream),
 			 .is_input = true,
 			 .generate_func = []
@@ -100,6 +100,8 @@ namespace processor
 			const auto frame_sample_element_count = frame.nb_samples;
 			const auto frame_channels = frame.ch_layout.nb_channels;
 			uint8_t** data = frame.extended_data;
+
+			std::lock_guard lock(spectrum_lock);
 
 			if (frame_channels == 1)
 			{
@@ -293,28 +295,28 @@ namespace processor
 
 	void Display_spectrum::draw_title()
 	{
-		imgui_utility::shadowed_text("spectrum");
+		imgui_utility::shadowed_text("Spectrum Display");
 	}
 
-	bool Display_spectrum::draw_content(bool readonly)
+	void Display_spectrum::draw_node_content()
 	{
-		ImGui::SetNextItemWidth(200);
+		ImGui::PushItemWidth(200);
 		ImGui::BeginGroup();
-		ImGui::BeginDisabled(readonly);
 		{
 			if (waveform1.size() > config::processor::display_spectrum::spectrum_size / 2)
 			{
 				std::vector<float> spectrum_l(waveform1.size());
+				std::lock_guard lock(spectrum_lock);
 				fftf(waveform1, spectrum_l);
 
 				ImGui::PlotLines(
 					waveform2.empty() ? "" : "Left Channel",
 					spectrum_l.data(),
-					display_sample_count / 3,
+					spectrum_l.size() / 2,
 					0,
 					0,
-					-1.0f,
-					300.0f,
+					FLT_MAX,
+					FLT_MAX,
 					ImVec2(400, 200)
 				);
 			}
@@ -322,16 +324,17 @@ namespace processor
 			if (waveform2.size() > config::processor::display_spectrum::spectrum_size / 2)
 			{
 				std::vector<float> spectrum_r(waveform2.size());
+				std::lock_guard lock(spectrum_lock);
 				fftf(waveform2, spectrum_r);
 
 				ImGui::PlotLines(
 					"Right Channel",
 					spectrum_r.data(),
-					display_sample_count / 3,
+					spectrum_r.size() / 2,
 					0,
 					0,
-					-1.0f,
-					300.0f,
+					FLT_MAX,
+					FLT_MAX,
 					ImVec2(400, 200)
 				);
 			}
@@ -339,10 +342,8 @@ namespace processor
 			if (ImGui::InputInt("Windows Size", &display_sample_count, 5000))
 				display_sample_count = std::max(5000, display_sample_count);
 		}
-		ImGui::EndDisabled();
 		ImGui::EndGroup();
-
-		return false;
+		ImGui::PopItemWidth();
 	}
 
 	Json::Value Display_spectrum::serialize() const
