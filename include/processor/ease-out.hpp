@@ -1,5 +1,5 @@
-// audio-vol.hpp
-// 包装了ffmpeg中的音量调节
+// ease-out.hpp
+// 包装了ffmpeg中的缓入
 
 #pragma once
 
@@ -29,19 +29,22 @@ namespace processor
 
 	// 音量调节处理器
 	// - 负责更改音频音量
-	class Audio_vol : public infra::Processor
+	class Ease_out : public infra::Processor
 	{
-		float volume = 1.0;
+		float start_volume = 1.f;
+		float volume_rate = 0.000001f;
+		float time = 0.0f;
+		std::unique_ptr<bool> initial;
 
 	  public:
 
-		Audio_vol() = default;
-		virtual ~Audio_vol() = default;
+		Ease_out() = default;
+		virtual ~Ease_out() = default;
 
-		Audio_vol(const Audio_vol&) = delete;
-		Audio_vol(Audio_vol&&) = default;
-		Audio_vol& operator=(const Audio_vol&) = delete;
-		Audio_vol& operator=(Audio_vol&&) = default;
+		Ease_out(const Ease_out&) = delete;
+		Ease_out(Ease_out&&) = default;
+		Ease_out& operator=(const Ease_out&) = delete;
+		Ease_out& operator=(Ease_out&&) = default;
 
 		static infra::Processor::Info get_processor_info();
 		virtual Processor::Info get_processor_info_non_static() const { return get_processor_info(); }
@@ -59,6 +62,14 @@ namespace processor
 
 		virtual void draw_title();
 		virtual bool draw_content(bool readonly);
+
+		template <typename T>
+		void change_volume(
+			uint8_t* const* dst,
+			const uint8_t* const* src,
+			int channel_count,
+			int element_count
+		);
 	};
 
 }

@@ -27,21 +27,21 @@ extern "C"
 namespace processor
 {
 
-	// 音量调节处理器
-	// - 负责更改音频音量
-	class Audio_vol : public infra::Processor
+	// 音频时间移动处理器
+	// - 负责更改音频开始的时间
+	class Time_shift : public infra::Processor
 	{
-		float volume = 1.0;
+		float shift_time = 0.0f;
 
 	  public:
 
-		Audio_vol() = default;
-		virtual ~Audio_vol() = default;
+		Time_shift() = default;
+		virtual ~Time_shift() = default;
 
-		Audio_vol(const Audio_vol&) = delete;
-		Audio_vol(Audio_vol&&) = default;
-		Audio_vol& operator=(const Audio_vol&) = delete;
-		Audio_vol& operator=(Audio_vol&&) = default;
+		Time_shift(const Time_shift&) = delete;
+		Time_shift(Time_shift&&) = default;
+		Time_shift& operator=(const Time_shift&) = delete;
+		Time_shift& operator=(Time_shift&&) = default;
 
 		static infra::Processor::Info get_processor_info();
 		virtual Processor::Info get_processor_info_non_static() const { return get_processor_info(); }
