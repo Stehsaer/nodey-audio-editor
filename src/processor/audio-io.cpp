@@ -450,7 +450,8 @@ namespace processor
 			 .display_name = "Input",
 			 .type = typeid(Audio_stream),
 			 .is_input = true,
-			 .generate_func = []
+			 .generate_func =
+				 []
 			 {
 				 return std::make_shared<Audio_stream>();
 			 }},

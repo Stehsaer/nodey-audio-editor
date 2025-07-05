@@ -339,7 +339,7 @@ namespace processor
 	{
 		ImGui::Separator();
 
-		if (ImGui::CollapsingHeader("properties", ImGuiTreeNodeFlags_DefaultOpen))
+		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			ImGui::SetNextItemWidth(200);
 			ImGui::BeginGroup();
@@ -885,7 +885,7 @@ namespace processor
 	{
 		ImGui::Separator();
 
-		if (ImGui::CollapsingHeader("properties", ImGuiTreeNodeFlags_DefaultOpen))
+		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			ImGui::Text("No Configuration Available");
 		}
