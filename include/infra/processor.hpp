@@ -10,6 +10,7 @@
 #include <source_location>
 #include <stop_token>
 
+#include "utility/imgui-utility.hpp"
 #include "utility/logic-error-utility.hpp"
 
 namespace infra
@@ -96,12 +97,17 @@ namespace infra
 		virtual void deserialize(const Json::Value& value) = 0;
 
 		// 绘制UI节点标题
-		virtual void draw_title() = 0;
+		virtual void draw_title()
+		{
+			imgui_utility::shadowed_text(get_processor_info_non_static().display_name.c_str());
+		};
 
 		// 绘制UI节点内容
 		// - 若属性被修改，则返回true，否则返回false
-		// - 注意：这个接口后续可能还有大改动
-		virtual bool draw_content(bool readonly) = 0;
+		virtual bool draw_content(bool readonly [[maybe_unused]]) { return false; };
+
+		// 绘制UI节点内容，默认不画任何东西
+		virtual void draw_node_content() {}
 
 		// 处理货物
 		// - 由Runner调用，处理器需要实现这个函数来处理输入的产品并生成输出产品

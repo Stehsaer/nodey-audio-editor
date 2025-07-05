@@ -332,7 +332,7 @@ namespace processor
 	{
 		bool change = false;
 		ImGui::Separator();
-		if(ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
+		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			ImGui::PushItemWidth(200);
 			ImGui::BeginDisabled(readonly);

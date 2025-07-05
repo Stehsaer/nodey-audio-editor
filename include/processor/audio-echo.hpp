@@ -1,5 +1,5 @@
-// audio-vol.hpp
-// 包装了ffmpeg中的音量调节
+// audio-echo.hpp
+// 包装了ffmpeg中的回音节点
 
 #pragma once
 
@@ -29,19 +29,21 @@ namespace processor
 
 	// 音量调节处理器
 	// - 负责更改音频音量
-	class Audio_vol : public infra::Processor
+	class Audio_echo : public infra::Processor
 	{
-		float volume = 1.0;
+		int echo_distance = 20000;
+		float echo_volume = 0.3f;
+		std::vector<double> echo_buffer_1, echo_buffer_2;
 
 	  public:
 
-		Audio_vol() = default;
-		virtual ~Audio_vol() = default;
+		Audio_echo() = default;
+		virtual ~Audio_echo() = default;
 
-		Audio_vol(const Audio_vol&) = delete;
-		Audio_vol(Audio_vol&&) = default;
-		Audio_vol& operator=(const Audio_vol&) = delete;
-		Audio_vol& operator=(Audio_vol&&) = default;
+		Audio_echo(const Audio_echo&) = delete;
+		Audio_echo(Audio_echo&&) = default;
+		Audio_echo& operator=(const Audio_echo&) = delete;
+		Audio_echo& operator=(Audio_echo&&) = default;
 
 		static infra::Processor::Info get_processor_info();
 		virtual Processor::Info get_processor_info_non_static() const { return get_processor_info(); }
@@ -59,6 +61,22 @@ namespace processor
 
 		virtual void draw_title();
 		virtual bool draw_content(bool readonly);
+
+		template <typename T>
+		void apply_echo_plannar(
+			uint8_t* const* dst,
+			const uint8_t* const* src,
+			int channel_count,
+			int element_count
+		);
+
+		template <typename T>
+		void apply_echo_packed(
+			uint8_t* const* dst,
+			const uint8_t* const* src,
+			int channel_count,
+			int element_count
+		);
 	};
 
 }
