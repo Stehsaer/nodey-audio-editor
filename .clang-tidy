@@ -25,6 +25,7 @@ Checks: >
   -readability-named-parameter,
   -readability-qualified-auto,
   -readability-math-missing-parentheses,
+  -readability-redundant-string-init,
   -performance-no-int-to-ptr,
   -misc-non-private-member-variables-in-classes,
   -misc-no-recursion,

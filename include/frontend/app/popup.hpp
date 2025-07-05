@@ -4,14 +4,15 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <queue>
 
 // 弹窗管理器
-class Popup_modal_manager
+class Popup_manager
 {
   public:
 
-	using Render_func = std::function<bool(bool)>;
+	using Render_func = std::move_only_function<bool(bool)>;
 
 	// 弹窗的参数
 	struct Window
@@ -40,6 +41,7 @@ class Popup_modal_manager
 
 	std::vector<std::unique_ptr<Internal_window>> windows;
 	std::queue<std::unique_ptr<Internal_window>> add_window_queue;
+	std::mutex add_window_mutex;
 
   public:
 

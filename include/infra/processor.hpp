@@ -5,6 +5,7 @@
 #include <functional>
 #include <json/json.h>
 #include <memory>
+#include <optional>
 #include <set>
 #include <source_location>
 #include <stop_token>
@@ -54,6 +55,7 @@ namespace infra
 			std::string display_name;  // 显示名称
 			bool singleton = false;    // 是否为单例处理器（每一个图中至多一个实例）
 			std::function<std::unique_ptr<Processor>()> generate;  // 生成处理器实例的函数
+			std::string description;                               // 描述信息
 		};
 
 		// 包含简述、解释和详细信息的运行时错误
@@ -108,8 +110,7 @@ namespace infra
 			const std::map<std::string, std::set<std::shared_ptr<Processor::Product>>>& output,
 			const std::atomic<bool>& stop_token,
 			std::any& user_data
-		) const
-			= 0;
+		) = 0;
 
 		// 静态的注册函数
 		template <typename T>

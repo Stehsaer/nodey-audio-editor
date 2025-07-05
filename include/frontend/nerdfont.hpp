@@ -43,3 +43,12 @@
 
 // Check（成功）
 #define ICON_CHECK "\uf05d"
+
+// 垃圾桶
+#define ICON_TRASH "\uf014"
+
+// 添加文件
+#define ICON_FILE_ADD "\U000f0752"
+
+// 外部链接
+#define ICON_EXT_LINK "\uf08e"

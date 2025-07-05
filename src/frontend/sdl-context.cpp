@@ -3,8 +3,10 @@
 
 #include <format>
 
+// 运行时参数定义
 namespace runtime_config
 {
+	// UI参数
 	float ui_scale = 1.0f;
 }
 
