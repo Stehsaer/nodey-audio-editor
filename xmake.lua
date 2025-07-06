@@ -20,7 +20,7 @@ includes("third-party")
 target("nodey_audio")
 	set_kind("binary")
 	set_languages("c++23")
-	set_version("0.0")
+	set_version("0.1")
 	set_license("GPL-2.0-or-later")
 
 	add_deps("imnodes", "portable-file-dialogs")
