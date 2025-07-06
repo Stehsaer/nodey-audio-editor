@@ -24,9 +24,10 @@ namespace infra
 
 		struct Node
 		{
-			std::shared_ptr<Processor> processor;  // 节点对应的处理器
-			std::set<Id_t> pins;                   // 节点拥有的引脚ID
-			ImVec2 position = ImVec2(0, 0);        // 节点在编辑器的位置
+			std::shared_ptr<Processor> processor;      // 节点对应的处理器
+			std::set<Id_t> pins;                       // 节点拥有的引脚ID
+			std::map<std::string, Id_t> pin_name_map;  // 引脚标识名到引脚ID的映射
+			ImVec2 position = ImVec2(0, 0);            // 节点在编辑器的位置
 		};
 
 		struct Pin
@@ -55,6 +56,7 @@ namespace infra
 		std::map<Id_t, Pin> pins;                        // 节点的引脚
 		std::map<Id_t, Link> links;                      // 连结
 		std::map<std::string, Id_t> singleton_node_map;  // 存储单例节点的映射
+		bool modified = false;
 
 	  private:
 
@@ -81,32 +83,7 @@ namespace infra
 
 	  public:
 
-		/* 增删函数 */
-
-		// 添加新的节点
-		Id_t add_node(std::unique_ptr<Processor> processor);
-
-		// 删除节点
-		void remove_node(Id_t id);
-
-		// 更新节点信息
-		void update_node_pin(Id_t id);
-
-		// 新增连结
-		Id_t add_link(Id_t from, Id_t to);
-
-		// 用ID删除连结
-		void remove_link(Id_t id);
-
-		// 用From和To引脚ID删除连结
-		void remove_link(Id_t from, Id_t to);
-
-		/* 图的辅助函数 */
-
-		std::map<Id_t, Id_t> get_pin_to_node_map() const;
-		std::map<Id_t, std::set<Id_t>> get_node_input_map() const;
-
-		/* 检测函数 */
+		/* 错误类型 */
 
 		// 引脚类型不匹配异常
 		struct Mismatched_pin_error : public std::runtime_error
@@ -143,6 +120,46 @@ namespace infra
 			}
 		};
 
+		// 输入的图文件无效
+		// - 可能是JSON格式损坏，或是JSON含有不对劲的内容，或者不符合保存的格式
+		struct Invalid_file_error : public std::runtime_error
+		{
+			std::string message;
+
+			Invalid_file_error(std::string message) :
+				std::runtime_error(std::format("Invalid File: {}", message)),
+				message(std::move(message))
+			{
+			}
+		};
+
+		/* 增删函数 */
+
+		// 添加新的节点
+		Id_t add_node(std::unique_ptr<Processor> processor);
+
+		// 删除节点
+		void remove_node(Id_t id);
+
+		// 更新节点信息
+		void update_node_pin(Id_t id);
+
+		// 新增连结
+		Id_t add_link(Id_t from, Id_t to);
+
+		// 用ID删除连结
+		void remove_link(Id_t id);
+
+		// 用From和To引脚ID删除连结
+		void remove_link(Id_t from, Id_t to);
+
+		/* 辅助函数 */
+
+		std::map<Id_t, Id_t> get_pin_to_node_map() const;
+		std::map<Id_t, std::set<Id_t>> get_node_input_map() const;
+
+		/* 检查函数 */
+
 		// 检查图是否有效，若无效则抛出上面对应的异常
 		void check_graph() const;
 
@@ -164,5 +181,15 @@ namespace infra
 
 			return true;
 		}
+
+		/* 序列化/反序列化 */
+
+		// 序列化图为JSON
+		Json::Value serialize() const;
+
+		// 反序列化图为Graph对象
+		// - 注意：不含错误处理，需要调用者处理错误
+		// - 处理失败时会抛出 Invalid_file_error 异常
+		static Graph deserialize(const Json::Value& value);
 	};
 }

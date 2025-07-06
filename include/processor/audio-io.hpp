@@ -18,7 +18,9 @@ namespace processor
 	// - 负责读取与解码音频文件
 	class Audio_input : public infra::Processor
 	{
-		std::string file_path;
+		size_t file_count = 1;
+		std::optional<size_t> remove_index;
+		std::vector<std::string> file_paths = {""};
 
 	  public:
 
@@ -39,10 +41,10 @@ namespace processor
 			const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 			const std::atomic<bool>& stop_token,
 			std::any& user_data
-		) const;
+		);
 
-		virtual Json::Value serialize() const { return {}; }
-		virtual void deserialize(const Json::Value& value) {}
+		virtual Json::Value serialize() const;
+		virtual void deserialize(const Json::Value& value);
 
 		virtual void draw_title();
 		virtual bool draw_content(bool readonly);
@@ -52,14 +54,35 @@ namespace processor
 	// - 负责将解码后的音频数据输出到音频设备
 	class Audio_output : public infra::Processor
 	{
+
 	  public:
 
 		// 音频处理上下文
 		// - 该处理器所需的上下文信息，通过std::any传递
 		struct Process_context
 		{
-			SDL_AudioDeviceID audio_device;
+			bool do_export;
+			std::string export_path = "";
+			size_t kbps = 0;
+			std::shared_ptr<std::atomic<double>> time = std::make_shared<std::atomic<double>>(0.0);
+			SDL_AudioDeviceID audio_device = 0;
 		};
+
+	  private:
+
+		void do_preview(
+			Audio_stream& input_stream,
+			SDL_AudioDeviceID audio_device,
+			const std::atomic<bool>& stop_token
+		);
+
+		void do_export(
+			Audio_stream& input_stream,
+			Process_context context,
+			const std::atomic<bool>& stop_token
+		);
+
+	  public:
 
 		Audio_output() = default;
 		virtual ~Audio_output() = default;
@@ -78,12 +101,12 @@ namespace processor
 			const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 			const std::atomic<bool>& stop_token,
 			std::any& user_data
-		) const;
+		);
 
 		virtual Json::Value serialize() const { return {}; }
 		virtual void deserialize(const Json::Value& value) {}
 
 		virtual void draw_title();
-		virtual bool draw_content(bool readonly) { return false; }
+		virtual bool draw_content(bool readonly);
 	};
 }
