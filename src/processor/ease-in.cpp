@@ -1,4 +1,4 @@
-#include "processor/audio-vol.hpp"
+#include "processor/ease-in.hpp"
 #include "config.hpp"
 #include "imgui.h"
 #include "utility/free-utility.hpp"
@@ -13,25 +13,17 @@
 
 namespace processor
 {
-	infra::Processor::Info Audio_vol::get_processor_info()
+	infra::Processor::Info Ease_in::get_processor_info()
 	{
 		return infra::Processor::Info{
-			.identifier = "audio_volume_adjust",
-			.display_name = "Adjust Volume",
+			.identifier = "Ease_in",
+			.display_name = "Ease in",
 			.singleton = false,
-			.generate = std::make_unique<Audio_vol>,
-			.description = "Audio Volume Adjuster\n\n"
-						   "## Functionality\n"
-						   "- Adjusts the volume of audio streams by a specified factor\n"
-						   "- Supports mono and stereo audio formats\n"
-						   "- Outputs audio in 48kHz, 32-bit float format\n\n"
-						   "## Usage\n"
-						   "- Connect audio input streams to the 'Input' pin\n"
-						   "- Set the desired volume adjustment factor using the slider",
+			.generate = std::make_unique<Ease_in>
 		};
 	}
 
-	std::vector<infra::Processor::Pin_attribute> Audio_vol::get_pin_attributes() const
+	std::vector<infra::Processor::Pin_attribute> Ease_in::get_pin_attributes() const
 	{
 
 		return std::vector<infra::Processor::Pin_attribute>{
@@ -56,12 +48,11 @@ namespace processor
 	}
 
 	template <typename T>
-	static void change_volume(
+	void Ease_in::change_volume(
 		uint8_t* const* dst,
 		const uint8_t* const* src,
 		int channel_count,
-		int element_count,
-		float volume
+		int element_count
 	)
 	{
 		const auto typed_dst = reinterpret_cast<T* const*>(dst);
@@ -78,11 +69,15 @@ namespace processor
 			std::copy(typed_src[ch], typed_src[ch] + element_count, typed_dst[ch]);
 
 			// 更改音量
-			for (int i = 0; i < element_count; i++) typed_dst[ch][i] *= volume;
+			for (int i = 0; i < element_count; i++)
+			{
+				typed_dst[ch][i] *= start_volume;
+				if (start_volume <= 1.0f) start_volume += volume_rate;
+			}
 		}
 	};
 
-	void Audio_vol::process_payload(
+	void Ease_in::process_payload(
 		const std::map<std::string, std::shared_ptr<infra::Processor::Product>>& input,
 		const std::map<std::string, std::set<std::shared_ptr<infra::Processor::Product>>>& output,
 		const std::atomic<bool>& stop_token,
@@ -94,8 +89,8 @@ namespace processor
 
 		if (!input_item_optional.has_value())
 			throw Runtime_error(
-				"Volume adjust processor has no input",
-				"Volume adjust processor requires an audio stream input to function properly.",
+				"Ease in processor has no input",
+				"Ease in processor requires an audio stream input to function properly.",
 				"Input item 'input' not found"
 			);
 
@@ -151,7 +146,6 @@ namespace processor
 			out_frame->nb_samples = src_frame.nb_samples;
 			out_frame->ch_layout = src_frame.ch_layout;
 			out_frame->pts = src_frame.pts;
-			out_frame->time_base = src_frame.time_base;
 
 			av_frame_get_buffer(out_frame, 32);
 
@@ -171,52 +165,22 @@ namespace processor
 			switch (format)
 			{
 			case AV_SAMPLE_FMT_FLT:
-				change_volume<float>(
-					dst_data,
-					src_data,
-					1,
-					frame_sample_element_count * frame_channels,
-					volume
-				);
+				change_volume<float>(dst_data, src_data, 1, frame_sample_element_count * frame_channels);
 				break;
 			case AV_SAMPLE_FMT_FLTP:
-				change_volume<float>(dst_data, src_data, frame_channels, frame_sample_element_count, volume);
+				change_volume<float>(dst_data, src_data, frame_channels, frame_sample_element_count);
 				break;
 			case AV_SAMPLE_FMT_S16:
-				change_volume<int16_t>(
-					dst_data,
-					src_data,
-					1,
-					frame_sample_element_count * frame_channels,
-					volume
-				);
+				change_volume<int16_t>(dst_data, src_data, 1, frame_sample_element_count * frame_channels);
 				break;
 			case AV_SAMPLE_FMT_S16P:
-				change_volume<int16_t>(
-					dst_data,
-					src_data,
-					frame_channels,
-					frame_sample_element_count,
-					volume
-				);
+				change_volume<int16_t>(dst_data, src_data, frame_channels, frame_sample_element_count);
 				break;
 			case AV_SAMPLE_FMT_S32:
-				change_volume<int32_t>(
-					dst_data,
-					src_data,
-					1,
-					frame_sample_element_count * frame_channels,
-					volume
-				);
+				change_volume<int32_t>(dst_data, src_data, 1, frame_sample_element_count * frame_channels);
 				break;
 			case AV_SAMPLE_FMT_S32P:
-				change_volume<int32_t>(
-					dst_data,
-					src_data,
-					frame_channels,
-					frame_sample_element_count,
-					volume
-				);
+				change_volume<int32_t>(dst_data, src_data, frame_channels, frame_sample_element_count);
 				break;
 			default:
 				throw Runtime_error(
@@ -232,61 +196,67 @@ namespace processor
 		for (auto& channel : output_item) channel->set_eof();
 	}
 
-	void Audio_vol::draw_title()
+	void Ease_in::draw_title()
 	{
-		imgui_utility::shadowed_text("Audio Volume");
+		imgui_utility::shadowed_text("Esae in");
 	}
 
-	bool Audio_vol::draw_content(bool readonly)
+	bool Ease_in::draw_content(bool readonly)
 	{
-		ImGui::Separator();
-		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
+		ImGui::BeginGroup();
+		ImGui::BeginDisabled(readonly);
 		{
-			ImGui::BeginGroup();
-			ImGui::BeginDisabled(readonly);
-			{
-				ImGui::SetNextItemWidth(200);
-				ImGui::DragFloat(
-					"Volume",
-					&this->volume,
-					0.01,
-					0.0,
-					config::processor::audio_volume::max_volume,
-					"%.2f"
-				);
-				volume = std::clamp<float>(volume, 0, config::processor::audio_volume::max_volume);
-			}
-			ImGui::EndDisabled();
-			ImGui::EndGroup();
+			ImGui::SetNextItemWidth(200);
+			ImGui::DragFloat("Temp Volume", &this->start_volume, 0.001, 0.0, 1.0f, "%.2f");
+			ImGui::SetNextItemWidth(200);
+			ImGui::DragFloat("Volume Rate", &this->volume_rate, 0.000001, 0.0, 1.0f, "%.6f");
 		}
+		ImGui::EndDisabled();
+		ImGui::EndGroup();
 
 		return false;
 	}
 
-	Json::Value Audio_vol::serialize() const
+	Json::Value Ease_in::serialize() const
 	{
 		Json::Value value;
-		value["volume"] = volume;
+		value["start volume"] = start_volume;
+		value["volume rate"] = volume_rate;
 		return value;
 	}
 
-	void Audio_vol::deserialize(const Json::Value& value)
+	void Ease_in::deserialize(const Json::Value& value)
 	{
-		if (!value.isMember("volume"))
+		if (!value.isMember("start volume"))
 			throw Runtime_error(
 				"Failed to deserialize JSON file",
 				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
-				"Wrong field: volume"
+				"Wrong field: start volume"
 			);
 
-		if (!value["volume"].isDouble())
+		if (!value["start volume"].isDouble())
 			throw Runtime_error(
 				"Failed to deserialize JSON file",
 				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
-				"Wrong field: volume"
+				"Wrong field: start volume"
 			);
 
-		volume = value["volume"].asFloat();
-		volume = std::min<float>(config::processor::audio_volume::max_volume, std::max<float>(0.f, volume));
+		start_volume = value["start volume"].asFloat();
+
+		if (!value.isMember("volume rate"))
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: volume rate"
+			);
+
+		if (!value["volume rate"].isDouble())
+			throw Runtime_error(
+				"Failed to deserialize JSON file",
+				"Audio_bimix failed to serialize the JSON input because of missing or invalid fields.",
+				"Wrong field: volume rate"
+			);
+
+		volume_rate = value["volume rate"].asFloat();
 	}
 }

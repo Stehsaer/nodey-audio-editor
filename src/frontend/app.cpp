@@ -1664,7 +1664,7 @@ void App::draw_node(infra::Id_t id, const infra::Graph::Node& node)
 		ImNodes::EndNodeTitleBar();
 
 		// 绘制节点本体
-		//if (node.processor->draw_content(false) && state == State::Editing) graph.update_node_pin(id);
+		node.processor->draw_node_content();
 
 		// 绘制节点输入输出端口
 		ImGui::NewLine();

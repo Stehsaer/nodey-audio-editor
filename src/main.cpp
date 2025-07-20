@@ -10,6 +10,9 @@
 
 int main(int argc, char** argv)
 {
+#ifdef _WIN32
+	system("chcp 65001");
+#endif
 	try
 	{
 		App app;

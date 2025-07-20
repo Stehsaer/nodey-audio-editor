@@ -20,14 +20,14 @@ namespace processor
 			.singleton = false,
 			.generate = std::make_unique<Velocity_modifier>,
 			.description = "Audio Velocity Modifier\n\n"
-				"## Functionality\n"
-				"- Adjusts the velocity of audio streams\n"
-				"- Supports pitch preservation with velocity adjustment\n"
-				"- Outputs audio in 48kHz, 32-bit float format\n\n"
-				"## Usage\n"
-				"- Connect audio input streams to the 'Input' pin\n"
-				"- Adjust the velocity multiplier using the slider\n"
-				"- Optionally preserve pitch while modifying velocity",
+						   "## Functionality\n"
+						   "- Adjusts the velocity of audio streams\n"
+						   "- Supports pitch preservation with velocity adjustment\n"
+						   "- Outputs audio in 48kHz, 32-bit float format\n\n"
+						   "## Usage\n"
+						   "- Connect audio input streams to the 'Input' pin\n"
+						   "- Adjust the velocity multiplier using the slider\n"
+						   "- Optionally preserve pitch while modifying velocity",
 		};
 	}
 
@@ -67,12 +67,12 @@ namespace processor
 			.singleton = false,
 			.generate = std::make_unique<Pitch_modifier>,
 			.description = "Audio Pitch Modifier\n\n"
-				"## Functionality\n"
-				"- Adjusts the pitch of audio streams by a specified note value\n"
-				"- Outputs audio in 48kHz, 32-bit float format\n\n"
-				"## Usage\n"
-				"- Connect audio input streams to the 'Input' pin\n"
-				"- Adjust the pitch value using the input field",
+						   "## Functionality\n"
+						   "- Adjusts the pitch of audio streams by a specified note value\n"
+						   "- Outputs audio in 48kHz, 32-bit float format\n\n"
+						   "## Usage\n"
+						   "- Connect audio input streams to the 'Input' pin\n"
+						   "- Adjust the pitch value using the input field",
 		};
 	}
 
@@ -106,9 +106,9 @@ namespace processor
 
 	bool Velocity_modifier::draw_content(bool readonly)
 	{
-		
+
 		ImGui::Separator();
-		if(ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
+		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			ImGui::PushItemWidth(200);
 			ImGui::BeginDisabled(readonly);
@@ -128,14 +128,15 @@ namespace processor
 			ImGui::EndDisabled();
 			ImGui::PopItemWidth();
 		}
-		
+
 		return false;
 	}
 
 	bool Pitch_modifier::draw_content(bool readonly)
 	{
 		ImGui::Separator();
-		if(ImGui::CollapsingHeader("Properties",ImGuiTreeNodeFlags_DefaultOpen)){
+		if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen))
+		{
 			ImGui::PushItemWidth(200);
 			ImGui::BeginDisabled(readonly);
 			{
